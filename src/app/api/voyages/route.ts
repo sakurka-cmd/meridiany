@@ -5,22 +5,24 @@ import type { VoyageDTO } from '@/lib/types';
 export const dynamic = 'force-dynamic';
 
 // GET /api/voyages
-// Optional query params: ?era=...&explorerId=...
-// Always returns full route points (so the page can render map + list from a single call).
+// Optional query params: ?era=...&explorerId=...&type=sea|land|mixed|air
+// Always returns full route points (so the page can render map + list + timeline from a single call).
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const era = searchParams.get('era');
     const explorerId = searchParams.get('explorerId');
+    const type = searchParams.get('type');
 
     const voyages = await db.voyage.findMany({
       where: {
         ...(era && era !== 'all' ? { era } : {}),
         ...(explorerId && explorerId !== 'all' ? { explorerId } : {}),
+        ...(type && type !== 'all' ? { type } : {}),
       },
       orderBy: [{ startYear: 'asc' }, { title: 'asc' }],
       include: {
-        explorer: { select: { id: true, name: true } },
+        explorer: { select: { id: true, name: true, who: true } },
         routePoints: { orderBy: { order: 'asc' } },
       },
     });
@@ -33,9 +35,11 @@ export async function GET(request: Request) {
       endYear: v.endYear,
       era: v.era,
       type: v.type,
+      category: v.category,
       color: v.color,
       explorerId: v.explorer.id,
       explorerName: v.explorer.name,
+      explorerWho: v.explorer.who,
       routePoints: v.routePoints.map((p) => ({
         id: p.id,
         order: p.order,

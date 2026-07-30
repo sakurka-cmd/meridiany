@@ -1,0 +1,655 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Меридианы — атлас великих экспедиций</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,700;0,900;1,500&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0B1420; --panel:#0F1D2E;
+  --paper:#EDE6D6; --muted:#8CA0B4; --brass:#D9A441;
+  --line:rgba(217,164,65,.22);
+  --disp:'Playfair Display',Georgia,serif;
+  --body:'IBM Plex Sans',system-ui,sans-serif;
+  --mono:'IBM Plex Mono',ui-monospace,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{background:var(--bg);color:var(--paper);font-family:var(--body);display:flex;flex-direction:column;overflow:hidden}
+::selection{background:var(--brass);color:#141005}
+button{font-family:inherit;cursor:pointer}
+
+#loader{position:fixed;inset:0;z-index:50;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;
+  background:radial-gradient(900px 520px at 50% 28%,#14273E 0%,#0B1420 62%);transition:opacity .6s ease}
+#loader.done{opacity:0;pointer-events:none}
+#loader .lcomp{width:72px;height:72px}
+#loader .spin{transform-origin:22px 22px;animation:rot 3.2s linear infinite}
+@keyframes rot{to{transform:rotate(360deg)}}
+.lword{font:900 30px/1 var(--disp);letter-spacing:.22em}
+#loadMsg{font:400 12px var(--mono);color:var(--muted);letter-spacing:.06em;text-align:center;padding:0 20px}
+
+header{height:60px;flex:none;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:0 20px;
+  border-bottom:1px solid var(--line);position:relative;z-index:20;background:#0C1826}
+.brand{display:flex;align-items:center;gap:13px}
+.compass{width:38px;height:38px;flex:none}
+.compass .needle{transform-origin:22px 22px;animation:sway 7s ease-in-out infinite alternate}
+@keyframes sway{from{transform:rotate(-15deg)}to{transform:rotate(12deg)}}
+.wordmark{font:900 21px/1 var(--disp);letter-spacing:.14em}
+.tagline{font:400 10.5px var(--mono);color:var(--muted);letter-spacing:.12em;text-transform:uppercase;margin-top:3px}
+.hstats{display:flex;gap:9px;align-items:center;font:500 11px var(--mono);color:var(--muted);letter-spacing:.05em}
+.hstats i{color:var(--brass);font-style:normal}
+
+main{flex:1;display:flex;min-height:0}
+
+#side{width:372px;flex:none;display:flex;flex-direction:column;min-height:0;position:relative;z-index:15;
+  background:
+    repeating-linear-gradient(90deg,rgba(255,255,255,.022) 0 1px,transparent 1px 46px),
+    repeating-linear-gradient(0deg,rgba(255,255,255,.016) 0 1px,transparent 1px 46px),
+    radial-gradient(600px 300px at 0% 0%,#16304C 0%,transparent 60%),
+    radial-gradient(500px 400px at 100% 100%,#0E2A33 0%,transparent 55%),
+    var(--panel);
+  border-right:1px solid rgba(237,230,214,.08)}
+.side-head{position:relative;padding:20px 20px 14px;overflow:hidden}
+.side-head::before,.side-head::after{content:'';position:absolute;right:-46px;top:-46px;width:170px;height:170px;border-radius:50%;
+  border:1px solid rgba(217,164,65,.22);animation:sonar 5.5s ease-out infinite;pointer-events:none}
+.side-head::after{animation-delay:2.7s}
+@keyframes sonar{0%{transform:scale(.35);opacity:.8}100%{transform:scale(1.3);opacity:0}}
+.deco{position:absolute;left:0;top:6px;height:64px;width:100%;opacity:.55;pointer-events:none}
+.deco path{stroke:var(--brass);stroke-width:1.4;fill:none;stroke-dasharray:5 8;animation:dash 1.4s linear infinite}
+@keyframes dash{to{stroke-dashoffset:-26}}
+.deco .ship{fill:var(--brass)}
+.side-head h2{position:relative;font:700 24px/1.1 var(--disp);margin-top:44px}
+.side-head p{position:relative;font:400 12.5px/1.5 var(--body);color:var(--muted);margin-top:7px}
+.search{display:flex;align-items:center;gap:9px;margin:4px 16px 12px;padding:9px 12px;border-radius:8px;
+  background:rgba(255,255,255,.05);border:1px solid rgba(237,230,214,.13);transition:border-color .2s}
+.search:focus-within{border-color:var(--brass)}
+.search svg{width:14px;height:14px;flex:none}
+.search input{flex:1;background:none;border:none;outline:none;color:var(--paper);font:400 13px var(--body)}
+.search input::placeholder{color:rgba(140,160,180,.6)}
+#chips{display:flex;flex-wrap:wrap;gap:7px;padding:0 16px 14px}
+.chip{font:600 11.5px var(--body);padding:6px 12px;border-radius:999px;border:1px solid rgba(237,230,214,.18);
+  background:transparent;color:var(--muted);transition:all .2s}
+.chip:hover{border-color:var(--brass);color:var(--paper);transform:translateY(-1px)}
+.chip.on{background:var(--brass);border-color:var(--brass);color:#141005}
+#expList{flex:1;overflow-y:auto;min-height:0;border-top:1px solid rgba(237,230,214,.07)}
+#expList::-webkit-scrollbar{width:9px}
+#expList::-webkit-scrollbar-thumb{background:#22384F;border-radius:5px;border:2px solid var(--panel)}
+.exp{display:flex;gap:12px;align-items:flex-start;padding:13px 16px 13px 13px;border-left:3px solid transparent;cursor:pointer;
+  transition:background .2s,border-color .2s,transform .2s}
+.exp:hover{background:rgba(255,255,255,.045);transform:translateX(3px);border-left-color:var(--c)}
+.exp.active{background:rgba(217,164,65,.09);border-left-color:var(--c)}
+.swatch{width:24px;height:24px;flex:none;margin-top:2px;border-radius:50%;border:2px solid var(--c);
+  background:radial-gradient(circle at 35% 35%,var(--c) 0 4px,transparent 5px)}
+.exp-body{min-width:0}
+.exp h4{font:700 15px/1.25 var(--disp);letter-spacing:.01em}
+.exp p{font:400 11.5px/1.4 var(--body);color:var(--muted);margin-top:3px}
+.exp .tag{margin-left:auto;flex:none;font:500 9px var(--mono);letter-spacing:.1em;text-transform:uppercase;
+  color:rgba(237,230,214,.4);padding-top:4px;text-align:right;max-width:76px}
+.side-foot{flex:none;padding:12px 16px;font:400 10.5px/1.55 var(--body);color:rgba(140,160,180,.75);
+  border-top:1px solid rgba(237,230,214,.08);background:rgba(8,15,25,.35)}
+.side-foot code{font:500 10px var(--mono);color:var(--brass)}
+
+#mapwrap{flex:1;position:relative;min-width:0}
+#map{position:absolute;inset:0;filter:saturate(.85) sepia(.06) contrast(1.02)}
+#sideToggle{display:none;position:absolute;top:14px;left:14px;z-index:8;align-items:center;gap:7px;
+  background:rgba(10,19,31,.9);border:1px solid var(--line);color:var(--paper);border-radius:8px;padding:8px 13px;font:600 12px var(--body)}
+.mapbtns{position:absolute;top:14px;left:14px;z-index:6}
+.mapbtns button{background:rgba(10,19,31,.88);border:1px solid rgba(237,230,214,.16);color:var(--paper);
+  border-radius:8px;padding:8px 14px;font:600 12px var(--body);transition:all .2s}
+.mapbtns button:hover{border-color:var(--brass);color:var(--brass);transform:translateY(-1px)}
+#hintPill{position:absolute;top:14px;left:50%;transform:translateX(-50%);z-index:6;pointer-events:none;
+  background:rgba(10,19,31,.9);border:1px solid var(--line);border-radius:999px;padding:8px 18px;
+  font:500 12px var(--body);white-space:nowrap;transition:opacity .5s;animation:bob 3s ease-in-out infinite}
+#hintPill.off{opacity:0}
+@keyframes bob{0%,100%{margin-top:0}50%{margin-top:5px}}
+#coords{position:absolute;left:14px;bottom:106px;z-index:6;font:500 11px var(--mono);letter-spacing:.05em;
+  color:rgba(237,230,214,.9);background:rgba(8,15,25,.75);border:1px solid rgba(237,230,214,.12);
+  border-radius:6px;padding:5px 11px;white-space:pre}
+
+#card{position:absolute;top:16px;right:16px;z-index:7;width:342px;max-height:calc(100% - 138px);
+  display:flex;flex-direction:column;border-radius:10px;border:1px solid var(--line);
+  background:linear-gradient(180deg,#132540 0%,#0D1929 100%);
+  box-shadow:0 18px 50px rgba(3,8,15,.55);opacity:0;transform:translateX(26px);pointer-events:none;
+  transition:opacity .35s ease,transform .35s ease}
+#card.show{opacity:1;transform:none;pointer-events:auto}
+#cardX{position:absolute;top:10px;right:10px;z-index:2;width:28px;height:28px;border-radius:50%;border:1px solid rgba(237,230,214,.2);
+  background:rgba(255,255,255,.05);color:var(--muted);font-size:12px;transition:all .2s}
+#cardX:hover{color:var(--paper);border-color:var(--brass);transform:rotate(90deg)}
+.card-in{padding:18px 18px 12px;display:flex;flex-direction:column;overflow:hidden;min-height:0}
+.card-era{display:inline-block;align-self:flex-start;font:600 9.5px var(--mono);letter-spacing:.14em;text-transform:uppercase;
+  color:var(--brass);border:1px solid var(--line);border-radius:999px;padding:4px 10px;margin-bottom:10px}
+#cName{font:900 24px/1.12 var(--disp);letter-spacing:.01em;padding-right:26px}
+#cWho{font:500 11px var(--mono);color:var(--brass);letter-spacing:.04em;margin-top:6px}
+#cDesc{font:400 12.5px/1.55 var(--body);color:#C9D4E0;margin-top:10px}
+.card-stats{display:flex;gap:10px;margin-top:14px}
+.card-stats>div{flex:1;background:rgba(255,255,255,.045);border:1px solid rgba(237,230,214,.1);border-radius:8px;padding:9px 12px}
+.card-stats b{display:block;font:700 21px/1 var(--disp);color:var(--paper)}
+.card-stats span{display:block;font:500 9px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-top:5px}
+.card-sub{font:600 10px var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin:14px 0 8px}
+#cWps{overflow-y:auto;min-height:56px;flex:1;padding-right:4px}
+#cWps::-webkit-scrollbar{width:7px}
+#cWps::-webkit-scrollbar-thumb{background:#22384F;border-radius:4px}
+.cwp{display:flex;gap:10px;align-items:flex-start;width:100%;text-align:left;background:none;border:none;
+  border-left:2px solid rgba(237,230,214,.12);padding:7px 8px 7px 10px;transition:all .18s}
+.cwp:hover{background:rgba(255,255,255,.05);border-left-color:var(--c);transform:translateX(2px)}
+.cwp .n{flex:none;width:20px;height:20px;border-radius:50%;border:2px solid var(--c);color:var(--paper);
+  font:600 10px/16px var(--mono);text-align:center;margin-top:1px}
+.cwp .t{font:600 12px/1.35 var(--body);color:var(--paper)}
+.cwp .t em{display:block;font:400 10.5px/1.4 var(--body);font-style:normal;color:var(--muted);margin-top:2px}
+.card-note{flex:none;font:400 9.5px var(--mono);color:rgba(140,160,180,.6);padding:9px 0 4px;border-top:1px solid rgba(237,230,214,.08);margin-top:8px}
+
+#timeline{position:absolute;left:0;right:0;bottom:0;height:96px;z-index:5;pointer-events:none;
+  background:linear-gradient(180deg,rgba(8,15,25,0) 0%,rgba(8,15,25,.94) 48%)}
+.tl-in{position:absolute;inset:0 18px 8px;pointer-events:auto}
+.tl-dots{position:absolute;left:0;right:0;bottom:0;height:100%}
+.tl-dot{position:absolute;width:12px;height:12px;border-radius:50%;background:var(--c);border:2px solid #0B1420;
+  box-shadow:0 0 0 1px rgba(255,255,255,.28);transform:translateX(-50%);transition:transform .2s,box-shadow .2s,opacity .3s;padding:0}
+.tl-dot:hover{transform:translateX(-50%) scale(1.55);z-index:3}
+.tl-dot.on{box-shadow:0 0 0 2px var(--c),0 0 16px var(--c);transform:translateX(-50%) scale(1.4);z-index:2}
+.tl-dot.dim{opacity:.15}
+.tl-bands{position:absolute;left:0;right:0;bottom:38px;height:20px;display:flex;border-radius:3px;overflow:hidden}
+.tl-band{height:100%;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.035);
+  border-right:1px solid rgba(237,230,214,.1)}
+.tl-band.alt{background:rgba(255,255,255,.065)}
+.tl-band span{font:500 8.5px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:rgba(237,230,214,.55);white-space:nowrap}
+.tl-axis{position:absolute;left:0;right:0;bottom:16px;height:14px}
+.tl-axis span{position:absolute;transform:translateX(-50%);font:400 9px var(--mono);color:rgba(140,160,180,.65);white-space:nowrap}
+.tl-axis span.first{transform:none}
+.tl-axis span.last{transform:translateX(-100%)}
+
+.wp{position:relative;width:24px;height:24px;border-radius:50%;background:#0C1826;border:2px solid var(--c);
+  color:var(--paper);font:600 11px/1 var(--mono);display:flex;align-items:center;justify-content:center;
+  box-shadow:0 2px 8px rgba(4,10,18,.55)}
+.wp-start::after{content:'';position:absolute;inset:-7px;border-radius:50%;border:2px solid var(--c);
+  animation:ring 1.8s ease-out infinite}
+@keyframes ring{0%{transform:scale(.55);opacity:.9}100%{transform:scale(1.35);opacity:0}}
+
+@media (max-width:920px){
+  #side{position:fixed;left:0;top:60px;bottom:0;z-index:30;transform:translateX(-105%);transition:transform .3s ease;
+    box-shadow:20px 0 60px rgba(0,0,0,.5);width:min(372px,88vw)}
+  body.side-open #side{transform:none}
+  #sideToggle{display:flex}
+  .mapbtns{top:60px}
+  .hstats{display:none}
+  #card{width:min(342px,calc(100vw - 24px))}
+  #hintPill{display:none}
+}
+</style>
+</head>
+<body>
+
+<div id="loader">
+  <svg class="lcomp" viewBox="0 0 44 44">
+    <circle cx="22" cy="22" r="20" fill="none" stroke="#D9A441" stroke-width="1.5" opacity=".85"/>
+    <circle cx="22" cy="22" r="15" fill="none" stroke="rgba(217,164,65,.35)" stroke-width="1" stroke-dasharray="2 4"/>
+    <g class="spin"><path d="M22 5 L25.4 22 L22 39 L18.6 22 Z" fill="#D9A441"/><path d="M22 5 L25.4 22 L18.6 22 Z" fill="#E4572E"/></g>
+    <circle cx="22" cy="22" r="2.4" fill="#EDE6D6"/>
+  </svg>
+  <div class="lword">МЕРИДИАНЫ</div>
+  <div id="loadMsg">прокладываем курс · загружаем карты Яндекса…</div>
+</div>
+
+<header>
+  <div class="brand">
+    <svg class="compass" viewBox="0 0 44 44">
+      <circle cx="22" cy="22" r="20" fill="none" stroke="#D9A441" stroke-width="1.5" opacity=".85"/>
+      <circle cx="22" cy="22" r="15" fill="none" stroke="rgba(217,164,65,.35)" stroke-width="1" stroke-dasharray="2 4"/>
+      <g class="needle"><path d="M22 6 L25 22 L22 38 L19 22 Z" fill="#D9A441"/><path d="M22 6 L25 22 L19 22 Z" fill="#E4572E"/></g>
+      <circle cx="22" cy="22" r="2.2" fill="#EDE6D6"/>
+    </svg>
+    <div>
+      <div class="wordmark">МЕРИДИАНЫ</div>
+      <div class="tagline">атлас великих экспедиций</div>
+    </div>
+  </div>
+  <div class="hstats"><span>13 маршрутов</span><i>·</i><span>5 эпох</span><i>·</i><span>≈ 52 000 лет истории</span></div>
+</header>
+
+<main>
+  <aside id="side">
+    <div class="side-head">
+      <svg class="deco" viewBox="0 0 340 64" preserveAspectRatio="none">
+        <path id="decoPath" d="M-10,50 C50,8 110,58 175,30 C235,4 295,44 350,18"/>
+        <circle class="ship" r="3.5">
+          <animateMotion dur="11s" repeatCount="indefinite"><mpath href="#decoPath"/></animateMotion>
+        </circle>
+      </svg>
+      <h2>Курс на карте</h2>
+      <p>Выберите экспедицию — маршрут отрисуется плавным курсом с ключевыми точками, расстояниями и датами.</p>
+    </div>
+    <label class="search">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><circle cx="11" cy="11" r="7" stroke="#8CA0B4"/><path d="M20 20l-3.5-3.5" stroke="#8CA0B4" stroke-linecap="round"/></svg>
+      <input id="q" placeholder="Найти экспедицию или имя…" autocomplete="off">
+    </label>
+    <div id="chips"></div>
+    <div id="expList"></div>
+    <div class="side-foot">Маршруты сглажены сплайном по историческим стоянкам и огибают сушу; координаты приближённые.<br>
+    API: Яндекс.Карты 2.1 · для продакшена добавьте свой <code>apikey</code> в URL скрипта.</div>
+  </aside>
+
+  <section id="mapwrap">
+    <div id="map"></div>
+    <button id="sideToggle">☰ <span>маршруты</span></button>
+    <div class="mapbtns"><button id="resetBtn">⛶ &nbsp;Весь мир</button></div>
+    <div id="hintPill">Выберите экспедицию слева — маршрут оживёт на карте</div>
+    <div id="coords">— · —</div>
+
+    <aside id="card">
+      <button id="cardX" title="Закрыть (Esc)">✕</button>
+      <div class="card-in">
+        <div class="card-era" id="cEra"></div>
+        <h3 id="cName"></h3>
+        <div id="cWho"></div>
+        <p id="cDesc"></p>
+        <div class="card-stats">
+          <div><b id="cKm">0</b><span>км по маршруту*</span></div>
+          <div><b id="cWpN">0</b><span>ключевых точек</span></div>
+        </div>
+        <div class="card-sub">Ключевые точки</div>
+        <div id="cWps"></div>
+        <div class="card-note">* длина по сглаженной кривой · клик по точке — перелёт туда</div>
+      </div>
+    </aside>
+
+    <div id="timeline">
+      <div class="tl-in">
+        <div class="tl-dots" id="tlDots"></div>
+        <div class="tl-bands" id="tlBands"></div>
+        <div class="tl-axis" id="tlAxis"></div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script src="https://api-maps.yandex.ru/2.1/?lang=ru_RU" onerror="window.__ymapsFail=true"></script>
+<script>
+(function(){
+'use strict';
+var $=function(s){return document.querySelector(s);};
+
+var ERAS={ancient:'Древность',medieval:'Средние века',sail:'Век паруса',industry:'XIX–XX века',modern:'Современность'};
+
+/* [широта, долгота] — ключевые стоянки; между ними строится сглаженный морской курс */
+var EXPEDITIONS=[
+{id:'sahul',name:'Заселение Сахула',who:'древнейшие мореплаватели',years:'≈ 50 000 лет до н. э.',era:'ancient',color:'#A9744F',startYear:-50000,
+desc:'Древнейшие известные морские переходы человечества: чтобы достичь Австралии и Новой Гвинеи, людям пришлось пересекать проливы Уоллесии — десятки километров открытого океана на плотах и каноэ.',
+route:[[-2.0,119.5],[-5.5,123.0],[-8.8,125.5],[-10.5,130.0],[-7.0,139.5],[-9.2,143.0],[-12.5,136.5],[-15.5,133.0],[-14.5,129.5],[-16.0,123.5],[-20.3,118.6],[-22.0,114.5]],
+wp:[[0,'Уоллесия','острова между Азией и Сахулом'],[3,'Первые проливы','переходы через открытую воду'],[5,'Новая Гвинея','заселение ок. 50 тыс. лет до н. э.'],[11,'Юго-Западная Австралия','стоянки древних мореплавателей']]},
+
+{id:'lapita',name:'Полинезийская экспансия',who:'народы лапита',years:'≈ 1300 г. до н. э. — 1200 г. н. э.',era:'ancient',color:'#D9A62E',startYear:-1300,
+desc:'Величайшие мореплаватели древности: на каноэ с балансиром лапита расселились от Новой Британии до Самоа, а их потомки по звёздам, волнам и птицам нашли Гавайи, остров Пасхи и Новую Зеландию.',
+route:[[-5.4,150.5],[-9.4,160.0],[-16.6,168.3],[-17.8,177.9],[-13.8,-171.7],[-21.2,-175.2],[-17.7,-149.4],[19.9,-155.6]],
+wp:[[0,'Новая Британия','прародина культуры лапита'],[3,'Фиджи','≈ 900 г. до н. э.'],[4,'Самоа и Тонга','«колыбель Полинезии»'],[6,'Обществовы острова','≈ 1000 г. н. э.'],[7,'Гавайи','≈ 1000–1200 гг. н. э.']]},
+
+{id:'pytheas',name:'Пифей Массалийский',who:'греческий мореплаватель',years:'≈ 325 г. до н. э.',era:'ancient',color:'#5F9E6F',startYear:-325,
+desc:'Грек из Массалии первым из средиземноморцев вышел в северные моря: описал Британию, «оловянные острова» и полуночное солнце на легендарном Туле. Его отчёт «Об Океане» знал весь античный мир.',
+route:[[43.30,5.37],[41.4,2.2],[38.5,-0.3],[36.7,-4.4],[36.13,-5.35],[36.5,-6.3],[38.0,-8.9],[38.72,-9.14],[41.15,-8.95],[43.6,-1.6],[45.8,-1.1],[48.38,-4.49],[50.1,-5.7],[51.4,1.4],[53.6,0.4],[54.6,0.5],[57.1,9.9],[59.0,5.6],[61.5,5.0],[62.5,6.0],[63.4,10.4]],
+wp:[[0,'Массалия','современный Марсель'],[4,'Гадес','Гибралтарский пролив'],[11,'Бретань','путь к оловянным островам'],[12,'Корнуолл','Иктис — оловянная торговля'],[16,'Дания','путь на север'],[20,'Туле','«самый северный предел земли»']]},
+
+{id:'vikings',name:'Лейф Эрикссон — Винланд',who:'викинги',years:'≈ 1000 г. н. э.',era:'medieval',color:'#4E86C6',startYear:1000,
+desc:'За 500 лет до Колумба скандинавы достигли Северной Америки. Саги рассказывают о Винланде — стране дикого винограда; раскопки в Л’Анс-о-Медоуз подтвердили: викинги зимовали в Америке около 1000 года.',
+route:[[63.4,10.4],[64.15,-21.94],[61.0,-45.5],[66.5,-62.0],[56.0,-60.5],[51.6,-55.53]],
+wp:[[0,'Норвегия','путь через Северную Атлантику'],[1,'Исландия','перевалочная база викингов'],[2,'Гренландия','поселения Эрика Рыжего'],[3,'Хеллуланд','Баффинова Земля — «земля плоских камней»'],[5,'Винланд','Л’Анс-о-Медоуз — подтверждённое поселение в Америке']]},
+
+{id:'zhenghe',name:'Чжэн Хэ — Флот Сокровищ',who:'адмирал империи Мин',years:'1405–1433',era:'medieval',color:'#9C4F96',startYear:1405,
+desc:'Семь экспедиций «Флота Сокровищ»: сотни кораблей и до 28 тысяч человек. Китайские эскадры достигли Индии, Персидского залива, Аравии и Восточной Африки — крупнейший флот мира до XX века.',
+route:[[32.06,118.78],[30.3,121.8],[27.8,120.8],[26.07,119.3],[23.3,116.7],[22.55,114.1],[12.2,109.2],[2.2,102.25],[6.03,80.22],[11.25,75.77],[23.6,58.55],[27.08,56.27],[22.5,59.8],[16.5,53.5],[12.8,45.03],[-3.22,40.12]],
+wp:[[0,'Нанкин','верфи империи Мин'],[5,'Южно-Китайское море','путь к Чампе'],[6,'Чампа','Южный Вьетнам'],[7,'Малакка','опорный пункт флота'],[9,'Каликут','Индия'],[11,'Ормуз','Персидский залив'],[15,'Малинди','Восточная Африка; жираф, увезённый в Китай']]},
+
+{id:'vasco',name:'Васко да Гама',who:'португальская корона',years:'1497–1499',era:'sail',color:'#D63A4E',startYear:1497,
+desc:'Первый морской путь из Европы в Индию: вокруг Африки, через Индийский океан. В Каликуте да Гама открыл для Европы восточную торговлю пряностями — и эпоху океанских империй.',
+route:[[38.72,-9.14],[14.92,-23.51],[-10,-33],[-30,-32],[-34.36,18.47],[-34.18,22.14],[-33.95,25.6],[-29.95,31.05],[-28.8,32.1],[-25.97,32.58],[-15.03,40.74],[-10.5,40.4],[-4.06,39.67],[-3.22,40.12],[2,56],[11.25,75.77]],
+wp:[[0,'Лиссабон','8 июля 1497 года'],[1,'Острова Зелёного Мыса','последняя стоянка перед Атлантикой'],[4,'Мыс Доброй Надежды','обогнут в ноябре 1497-го'],[10,'Мозамбик','султанаты Восточной Африки'],[13,'Малинди','лоцман Ахмед ибн Маджид'],[15,'Каликут','20 мая 1498 — путь в Индию открыт']]},
+
+{id:'magellan',name:'Магеллан и Элькано',who:'испанская экспедиция',years:'1519–1522',era:'sail',color:'#F26B1D',startYear:1519,
+desc:'Первое кругосветное плавание: из 237 моряков и пяти кораблей вернулись 18 человек и один корабль. Магеллан погиб на Филиппинах; экспедицию завершил Хуан Себастьян Элькано.',
+route:[[36.77,-6.35],[28.47,-16.25],[-22.91,-43.17],[-28,-48.5],[-35,-56],[-49.3,-67.7],[-52.6,-70.0],[-53.2,-74.8],[-46,-82],[-38,-88],[-15,-125],[5,-145],[13.44,144.78],[10.31,123.95],[0.68,127.4],[-10,108],[-22,78],[-34.36,18.47],[14.92,-23.51],[37.39,-5.99]],
+wp:[[0,'Санлукар-де-Баррамеда','20 сентября 1519 — пять кораблей'],[2,'Рио-де-Жанейро','декабрь 1519'],[5,'Порт Сан-Хулиан','зимовка и мятеж'],[6,'Магелланов пролив','октябрь 1520 — выход в «Южное море»'],[12,'Гуам','март 1521'],[13,'Мактан','27 апреля 1521 — гибель Магеллана'],[14,'Тидоре','острова Пряностей'],[17,'Мыс Доброй Надежды','уже под командой Элькано'],[19,'Севилья','6 сентября 1522 — кругосветное завершено']]},
+
+{id:'cook',name:'Джеймс Кук — 1-е кругосветное',who:'Королевский флот Британии',years:'1768–1771',era:'sail',color:'#12A5A0',startYear:1768,
+desc:'«Индевор» прошёл мыс Горн, Таити (наблюдение прохождения Венеры), нанёс на карту Новую Зеландию и восточное побережье Австралии. Ни один моряк не умер от цинги — невиданное для тех лет.',
+route:[[50.37,-4.14],[32.6,-16.9],[-22.91,-43.17],[-55.98,-67.29],[-17.68,-149.41],[-41.29,174.78],[-43.5,147.5],[-33.95,151.24],[-27.4,153.5],[-23.5,151.2],[-21.1,149.3],[-19.3,147.2],[-16.9,145.8],[-10.68,142.4],[-9.8,134],[-6.13,106.8],[-34.36,18.47],[50.37,-4.14]],
+wp:[[0,'Плимут','26 августа 1768'],[3,'Мыс Горн','январь 1769'],[4,'Таити','наблюдение прохождения Венеры'],[5,'Новая Зеландия','обойдена и нанесена на карту'],[6,'Земля Ван-Димена','юг Тасмании'],[7,'Ботани-Бей','восточное побережье Австралии'],[13,'Пролив Эндеavour','вдоль Большого Барьерного рифа'],[15,'Батавия','Ява'],[17,'Плимут','12 июля 1771']]},
+
+{id:'laperouse',name:'Жан-Франсуа Лаперуз',who:'французская кругосветная',years:'1785–1788',era:'sail',color:'#7B8CDE',startYear:1785,
+desc:'Два фрегата, «Буссоль» и «Астролябия», повторили путь Кука и пошли дальше: Аляска, Сахалин, Камчатка, Самоа. Экспедиция исчезла у острова Ваникоро — её судьбу раскрыли лишь спустя 40 лет.',
+route:[[48.39,-4.49],[28.47,-16.25],[-55.98,-67.29],[-27.12,-109.35],[19.5,-155.5],[58.64,-137.6],[36.6,-121.9],[22.2,113.55],[14.6,121.0],[31.5,129.8],[51.7,141.2],[53.05,158.65],[-14.28,-170.7],[-34.0,151.21],[-11.65,166.95]],
+wp:[[0,'Брест','1 августа 1785'],[2,'Мыс Горн','февраль 1786'],[3,'Остров Пасхи','апрель 1786'],[4,'Гавайи','май 1786'],[5,'Аляска','бухта Литуйа'],[7,'Макао','январь 1787'],[10,'Сахалин','пролив назван именем Лаперуза'],[11,'Петропавловск-Камчатский','зимовка на Камчатке'],[12,'Самоа','гибель 12 моряков'],[13,'Ботани-Бей','март 1788 — последнее письмо'],[14,'Ваникоро','гибель экспедиции; тайна раскрыта в 1828-м']]},
+
+{id:'krusenstern',name:'Иван Крузенштерн',who:'первая русская кругосветная',years:'1803–1806',era:'sail',color:'#E8B430',startYear:1803,
+desc:'«Надежда» и «Нева» — первая русская кругосветка: через мыс Горн на Камчатку, к берегам Японии и Сахалина. Экспедиция везла посольство Резанова и собрала богатейшие научные коллекции.',
+route:[[59.99,29.77],[55.68,12.57],[50.15,-5.07],[28.47,-16.25],[-27.6,-48.55],[-55.98,-67.29],[-27.12,-109.35],[-9.8,-139.03],[19.7,-155.09],[53.05,158.65],[42,146],[34,137],[32.75,129.87],[51.9,142.0],[55.5,146.5],[59.36,143.24],[53.05,158.65],[42,146],[34,137],[26,123],[23.5,117],[22.2,113.55],[1.29,103.85],[-34.36,18.47],[-15.93,-5.72],[14.92,-23.51],[50.15,-5.07],[55.68,12.57],[59.99,29.77]],
+wp:[[0,'Кронштадт','7 августа 1803'],[4,'Бразилия','Флорианополис'],[5,'Мыс Горн','март 1804'],[6,'Остров Пасхи','апрель 1804'],[7,'Маркизские острова','Нуку-Хива'],[8,'Гавайи','июнь 1804'],[9,'Камчатка','Петропавловск'],[12,'Нагасаки','посольство Резанова в Японию'],[13,'Сахалин','опись берегов'],[15,'Охотск','север Охотского моря'],[21,'Макао','торговля мехами'],[23,'Мыс Доброй Надежды','ноябрь 1805'],[28,'Кронштадт','19 августа 1806']]},
+
+{id:'bellingshausen',name:'Беллинсгаузен и Лазарев',who:'открытие Антарктиды',years:'1819–1821',era:'sail',color:'#6FC3E8',startYear:1819,
+desc:'Шлюпы «Восток» и «Мирный» прошли вокруг ледяного материка в самых суровых широтах. 28 января 1820 года экспедиция увидела льды Антарктиды — последний открытый континент Земли.',
+route:[[59.99,29.77],[55.68,12.57],[50.8,-1.1],[28.47,-16.25],[-22.91,-43.17],[-54.4,-36.6],[-69.9,-1.0],[-66.5,60],[-65.5,120],[-68.8,163],[-33.87,151.21],[-55,-140],[-54.4,-36.6],[-22.91,-43.17],[14.92,-23.51],[50.8,-1.1],[55.68,12.57],[59.99,29.77]],
+wp:[[0,'Кронштадт','4 июля 1819'],[5,'Южная Георгия','южнополярные воды'],[6,'Берег Антарктиды','28 января 1820 — открыт шестой континент'],[9,'Море Росса','к востоку вдоль ледяного барьера'],[10,'Сидней','ремонт и отдых'],[17,'Кронштадт','5 августа 1821']]},
+
+{id:'amundsen',name:'Руаль Амундсен',who:'Северо-Западный проход',years:'1903–1906',era:'industry',color:'#8FA84B',startYear:1903,
+desc:'На маленьком промысловом судне «Йоа» Амундсен первым прошёл Северо-Западный проход от Атлантики до Тихого океана — три года среди льдов, с двумя зимовками и магнитными наблюдениями.',
+route:[[59.91,10.75],[64.18,-51.72],[72.0,-56.0],[74.0,-78.0],[73.7,-86.0],[72.9,-95.5],[71.8,-96.2],[69.5,-95.5],[68.63,-95.88],[68.05,-99.5],[68.35,-105.5],[69.1,-115.0],[69.4,-124.0],[69.6,-139.1],[70.8,-145.0],[71.3,-156.8],[70.3,-160.8],[69.4,-164.2],[68.7,-166.8],[66.8,-169.0],[64.3,-168.3],[64.5,-165.4]],
+wp:[[0,'Осло','июнь 1903, шлюп «Йоа»'],[1,'Готхоб','Гренландия'],[3,'Ланкастерский пролив','вход в арктический архипелаг'],[8,'Гавань Йоа','две зимовки; наблюдения магнитного полюса'],[13,'Море Бофорта','к западу вдоль арктического берега'],[15,'Мыс Барроу','выход к Берингову морю'],[21,'Ном','30 августа 1906 — проход пройден']]},
+
+{id:'heyerdahl',name:'Тур Хейердал — «Кон-Тики»',who:'на плоту через Тихий океан',years:'1947',era:'industry',color:'#E06C75',startYear:1947,
+desc:'Шесть человек на бальсовом плоту по образцу доколумбовых культур: 101 день и 8 000 км от Перу до Полинезии. Хейердал доказал, что древние мореплаватели могли пересечь великий океан.',
+route:[[-12.05,-77.15],[-14,-95],[-15.5,-115],[-16.0,-130],[-16.02,-142.47]],
+wp:[[0,'Кальяо','28 апреля 1947 — плот из бальсового дерева'],[2,'Экваториальное течение','101 день в открытом океане'],[4,'Атолл Рароиа','7 августа 1947 — плот выбросило на рифы']]},
+
+{id:'konyukhov',name:'Фёдор Конюхов',who:'Тихий океан на вёслах',years:'2013–2014',era:'modern',color:'#E85C90',startYear:2013,
+desc:'Одиночный переход на весельной лодке «Тургояк» из Чили в Австралию: 272 дня, более 16 000 км без заходов в порты. Часть проекта Большого Тихоокеанского кольца.',
+route:[[-32.92,-71.62],[-33.5,-90],[-30,-120],[-27.5,-150],[-26.68,153.13]],
+wp:[[0,'Конкон, Чили','22 декабря 2013'],[2,'Южная часть Тихого океана','шторма и девятибалльные волны'],[4,'Мулулаба, Австралия','31 мая 2014 — 272 дня в океане']]}
+];
+
+var map=null, selected=null, eraFilter=null, raf=0, wpMarks=[], timers=[];
+var byId={}; EXPEDITIONS.forEach(function(e){byId[e.id]=e;});
+
+/* ---------- статичный UI ---------- */
+(function buildList(){
+  var box=$('#expList');
+  EXPEDITIONS.forEach(function(e){
+    var el=document.createElement('div');
+    el.className='exp'; el.dataset.id=e.id; el.style.setProperty('--c',e.color);
+    el.innerHTML='<div class="swatch"></div><div class="exp-body"><h4>'+e.name+'</h4><p>'+e.who+' · '+e.years+'</p></div><span class="tag">'+ERAS[e.era]+'</span>';
+    el.addEventListener('click',function(){ select(e.id); closeSide(); });
+    el.addEventListener('mouseenter',function(){ if(selected||!e.polys) return; e.polys.forEach(function(p){p.options.set({strokeWidth:4.2,strokeOpacity:1});}); });
+    el.addEventListener('mouseleave',function(){ if(!selected) baseStyle(e); });
+    box.appendChild(el); e.el=el;
+  });
+})();
+
+(function buildChips(){
+  var box=$('#chips');
+  function mk(key,label){
+    var b=document.createElement('button');
+    b.className='chip'+(key===''?' on':''); b.textContent=label; b.dataset.era=key;
+    b.addEventListener('click',function(){
+      eraFilter=key||null;
+      box.querySelectorAll('.chip').forEach(function(c){c.classList.toggle('on',c===b);});
+      applyFilter();
+    });
+    box.appendChild(b);
+  }
+  mk('','Все эпохи');
+  Object.keys(ERAS).forEach(function(k){mk(k,ERAS[k]);});
+})();
+
+var SEGS=[[-50000,-1000,0,.16],[-1000,1400,.16,.30],[1400,1850,.30,.56],[1850,1950,.56,.78],[1950,2030,.78,1]];
+function yearX(y){ for(var i=0;i<SEGS.length;i++){var s=SEGS[i]; if(y<=s[1]) return s[2]+(Math.max(s[0],y)-s[0])/(s[1]-s[0])*(s[3]-s[2]);} return 1; }
+
+(function buildTimeline(){
+  var ranges={ancient:[-50000,-1000],medieval:[-1000,1400],sail:[1400,1850],industry:[1850,1950],modern:[1950,2030]};
+  var bands=$('#tlBands'), i=0;
+  Object.keys(ERAS).forEach(function(k){
+    var w=(yearX(ranges[k][1])-yearX(ranges[k][0]))*100;
+    var b=document.createElement('div');
+    b.className='tl-band'+(i%2?' alt':''); b.style.width=w+'%';
+    b.innerHTML='<span>'+ERAS[k]+'</span>'; bands.appendChild(b); i++;
+  });
+  var axis=$('#tlAxis');
+  [['50 тыс. до н.э.',0,'first'],['1000 до н.э.',16],['1400',30],['1850',56],['1950',78],['наши дни',100,'last']].forEach(function(a){
+    var s=document.createElement('span'); s.textContent=a[0]; s.style.left=a[1]+'%'; if(a[2]) s.className=a[2]; axis.appendChild(s);
+  });
+  var dots=$('#tlDots');
+  EXPEDITIONS.forEach(function(e,idx){
+    var d=document.createElement('button');
+    d.className='tl-dot'; d.style.setProperty('--c',e.color);
+    d.style.left=(yearX(e.startYear)*100)+'%';
+    d.style.bottom=(64+(idx%2)*13)+'px';
+    d.title=e.name+' · '+e.years;
+    d.addEventListener('click',function(){ select(e.id); });
+    dots.appendChild(d); e.dots=[d];
+  });
+})();
+
+function applyFilter(){
+  var q=($('#q').value||'').trim().toLowerCase();
+  EXPEDITIONS.forEach(function(e){
+    var okEra=!eraFilter||e.era===eraFilter;
+    var okQ=!q||(e.name+' '+e.who+' '+e.years).toLowerCase().indexOf(q)>-1;
+    e.el.style.display=(okEra&&okQ)?'':'none';
+    e.dots.forEach(function(d){d.classList.toggle('dim',!okEra);});
+    baseStyle(e);
+  });
+}
+$('#q').addEventListener('input',applyFilter);
+
+/* ---------- сглаживание маршрутов ---------- */
+/* разворачиваем долготы в непрерывную ленту, чтобы сплайн не «прыгал» через 180° */
+function unwrapLng(pts){
+  var out=[pts[0].slice()];
+  for(var i=1;i<pts.length;i++){
+    var prev=out[i-1][1], lo=pts[i][1];
+    while(lo-prev>180) lo-=360;
+    while(lo-prev<-180) lo+=360;
+    out.push([pts[i][0],lo]);
+  }
+  return out;
+}
+/* центрипетальный сплайн Катмулла-Рома: кривая проходит через все стоянки, без забросов на сушу */
+function crPoint(p0,p1,p2,p3,t){
+  function dist(a,b){return Math.hypot(a[0]-b[0],a[1]-b[1])||1e-6;}
+  var t0=0,t1=Math.pow(dist(p0,p1),0.5),t2=t1+Math.pow(dist(p1,p2),0.5),t3=t2+Math.pow(dist(p2,p3),0.5);
+  var tt=t1+(t2-t1)*t;
+  function mix(a,b,ta,tb){ if(tb===ta) return a.slice(); var f=(tt-ta)/(tb-ta); return [a[0]+(b[0]-a[0])*f, a[1]+(b[1]-a[1])*f]; }
+  var A1=mix(p0,p1,t0,t1),A2=mix(p1,p2,t1,t2),A3=mix(p2,p3,t2,t3);
+  var B1=mix(A1,A2,t0,t2),B2=mix(A2,A3,t1,t3);
+  return mix(B1,B2,t1,t2);
+}
+function smoothPath(pts,per){
+  if(pts.length<3) return pts.slice();
+  var P=[pts[0]].concat(pts,[pts[pts.length-1]]);
+  var out=[];
+  for(var i=0;i<P.length-3;i++)
+    for(var j=0;j<per;j++) out.push(crPoint(P[i],P[i+1],P[i+2],P[i+3],j/per));
+  out.push(pts[pts.length-1].slice());
+  return out;
+}
+/* режем плотную кривую по линии перемены дат на отдельные полилинии */
+function splitDense(path){
+  var segs=[[]], cur=segs[0];
+  for(var i=0;i<path.length;i++){
+    var la=path[i][0], lo=path[i][1];
+    while(lo>180)lo-=360; while(lo<-180)lo+=360;
+    if(cur.length){
+      var prev=cur[cur.length-1];
+      if(Math.abs(lo-prev[1])>180){
+        var bound=prev[1]>0?180:-180;
+        var lo2=lo>0?lo-360:lo+360;
+        var t=(bound-prev[1])/(lo2-prev[1]);
+        var laC=prev[0]+t*(la-prev[0]);
+        cur.push([laC,bound]);
+        cur=[[laC,-bound]]; segs.push(cur);
+      }
+    }
+    cur.push([la,lo]);
+  }
+  return segs.filter(function(s){return s.length>1;});
+}
+function wrapP(p){var lo=p[1];while(lo>180)lo-=360;while(lo<-180)lo+=360;return [p[0],lo];}
+
+/* ---------- карта ---------- */
+function wpLayout(color,start){
+  return ymaps.templateLayoutFactory.createClass(
+    '<div class="wp'+(start?' wp-start':'')+'" style="--c:'+color+'"><span>$[properties.idx]</span></div>'
+  );
+}
+
+function initMap(){
+  map=new ymaps.Map('map',
+    {center:[26,12],zoom:2,minZoom:2,type:'yandex#map'},
+    {suppressMapOpenBlock:true,yandexMapDisablePoiInteractivity:true});
+  try{
+    ['searchControl','trafficControl','geolocationControl','routeEditor','rulerControl'].forEach(function(c){map.controls.remove(c);});
+  }catch(e){}
+
+  map.events.add('actiontick',function(e){setCoords(e.get('coords'));});
+  map.events.add('boundschange',function(){setCoords(map.getCenter());});
+
+  EXPEDITIONS.forEach(function(e){
+    var dense=smoothPath(unwrapLng(e.route),22);
+    e.segs=splitDense(dense);
+
+    e.km=0;
+    for(var i=1;i<dense.length;i++) e.km+=ymaps.coordSystem.geo.getDistance(wrapP(dense[i-1]),wrapP(dense[i]));
+    e.km=Math.round(e.km/1000);
+
+    var lats=e.route.map(function(p){return p[0];}), lngs=e.route.map(function(p){return p[1];});
+    e.bounds=[[Math.min.apply(null,lats),Math.min.apply(null,lngs)],[Math.max.apply(null,lats),Math.max.apply(null,lngs)]];
+
+    e.layout=wpLayout(e.color,false);
+    e.layoutStart=wpLayout(e.color,true);
+    e.polys=e.segs.map(function(seg){
+      var p=new ymaps.Polyline(seg,{hintContent:e.name+' · '+e.years},
+        {strokeColor:e.color.replace('#',''),strokeWidth:2.2,strokeOpacity:.75});
+      p.events.add('click',function(){select(e.id);});
+      p.events.add('mouseenter',function(){ if(selected&&selected!==e.id)return; p.options.set({strokeWidth:4.5,strokeOpacity:1}); });
+      p.events.add('mouseleave',function(){ if(selected===e.id){p.options.set({strokeWidth:4.2,strokeOpacity:1});} else baseStyle(e); });
+      map.geoObjects.add(p);
+      return p;
+    });
+  });
+
+  window.__mapOK=true;
+  setTimeout(function(){$('#loader').classList.add('done');},400);
+}
+
+function baseStyle(e){
+  if(!e.polys) return;
+  var eraOk=!eraFilter||e.era===eraFilter;
+  var w=2.2,o=.75;
+  if(selected){ if(selected===e.id){w=4.2;o=1;} else {w=1.4;o=.08;} }
+  else if(!eraOk){w=1.4;o=.05;}
+  e.polys.forEach(function(p){p.options.set({strokeWidth:w,strokeOpacity:o});});
+}
+
+function animateRoute(e){
+  var t0=performance.now(),dur=1700;
+  function frame(t){
+    var k=Math.min(1,(t-t0)/dur), ease=1-Math.pow(1-k,3);
+    e.polys.forEach(function(p,i){
+      var s=e.segs[i];
+      p.geometry.setCoordinates(s.slice(0,Math.max(2,Math.ceil(s.length*ease))));
+    });
+    if(k<1) raf=requestAnimationFrame(frame);
+    else e.polys.forEach(function(p,i){p.geometry.setCoordinates(e.segs[i]);});
+  }
+  raf=requestAnimationFrame(frame);
+}
+
+function clearWps(){
+  timers.forEach(clearTimeout); timers=[];
+  wpMarks.forEach(function(m){ if(map) map.geoObjects.remove(m); });
+  wpMarks=[];
+}
+
+function addWps(e){
+  e.wp.forEach(function(w,n){
+    var i=w[0],title=w[1],note=w[2];
+    var pm=new ymaps.Placemark(e.route[i],
+      {idx:n+1,hintContent:(n+1)+'. '+title+(note?' — '+note:'')},
+      {iconLayout:n===0?e.layoutStart:e.layout,iconOffset:[-12,-12],iconShape:{type:'Circle',coordinates:[12,12],radius:13}});
+    pm.events.add('click',function(){map.setCenter(e.route[i],6,{duration:450,checkZoomRange:true});});
+    timers.push(setTimeout(function(){map.geoObjects.add(pm);},350+n*150));
+    wpMarks.push(pm);
+  });
+}
+
+function select(id){
+  var e=byId[id];
+  if(!e||!map) return;
+  if(selected&&selected!==id){
+    var prev=byId[selected];
+    cancelAnimationFrame(raf);
+    prev.polys.forEach(function(p,i){p.geometry.setCoordinates(prev.segs[i]);});
+  }
+  selected=id;
+  EXPEDITIONS.forEach(baseStyle);
+  animateRoute(e);
+  clearWps(); addWps(e);
+  map.setBounds(e.bounds,{checkZoomRange:true,zoomMargin:48,duration:650});
+  showCard(e);
+  EXPEDITIONS.forEach(function(x){
+    x.el.classList.toggle('active',x.id===id);
+    x.dots.forEach(function(d){d.classList.toggle('on',x.id===id);});
+  });
+  $('#hintPill').classList.add('off');
+  closeSide();
+}
+
+function deselect(){
+  if(!selected) return;
+  var prev=byId[selected];
+  cancelAnimationFrame(raf);
+  prev.polys.forEach(function(p,i){p.geometry.setCoordinates(prev.segs[i]);});
+  selected=null; clearWps();
+  $('#card').classList.remove('show');
+  EXPEDITIONS.forEach(function(x){baseStyle(x);x.el.classList.remove('active');x.dots.forEach(function(d){d.classList.remove('on');});});
+}
+
+function showCard(e){
+  $('#cEra').textContent=ERAS[e.era];
+  $('#cName').textContent=e.name;
+  $('#cWho').textContent=e.who+' · '+e.years;
+  $('#cDesc').textContent=e.desc;
+  $('#cWpN').textContent=e.wp.length;
+  countUp($('#cKm'),e.km);
+  var list=$('#cWps'); list.innerHTML='';
+  e.wp.forEach(function(w,n){
+    var i=w[0],title=w[1],note=w[2];
+    var li=document.createElement('button');
+    li.className='cwp'; li.style.setProperty('--c',e.color);
+    li.innerHTML='<span class="n">'+(n+1)+'</span><span class="t">'+title+(note?'<em>'+note+'</em>':'')+'</span>';
+    li.addEventListener('click',function(){map.setCenter(e.route[i],6,{duration:450,checkZoomRange:true});});
+    list.appendChild(li);
+  });
+  var card=$('#card');
+  card.style.borderColor=e.color+'66';
+  card.classList.add('show');
+}
+
+function countUp(el,target){
+  var t0=performance.now(),dur=750;
+  function f(t){
+    var k=Math.min(1,(t-t0)/dur);
+    el.textContent=Math.round(target*k).toLocaleString('ru-RU');
+    if(k<1) requestAnimationFrame(f);
+  }
+  requestAnimationFrame(f);
+}
+
+function setCoords(c){
+  if(!c) return;
+  $('#coords').textContent=
+    Math.abs(c[0]).toFixed(2)+'° '+(c[0]>=0?'N':'S')+'   '+
+    Math.abs(c[1]).toFixed(2)+'° '+(c[1]>=0?'E':'W');
+}
+
+function closeSide(){ if(window.innerWidth<920) document.body.classList.remove('side-open'); }
+
+$('#resetBtn').addEventListener('click',function(){
+  deselect(); eraFilter=null;
+  document.querySelectorAll('.chip').forEach(function(c){c.classList.toggle('on',c.dataset.era==='');});
+  applyFilter();
+  map.setBounds([[-72,-179],[78,179]],{duration:700,checkZoomRange:true});
+});
+$('#cardX').addEventListener('click',deselect);
+$('#sideToggle').addEventListener('click',function(){document.body.classList.toggle('side-open');});
+document.addEventListener('keydown',function(e){ if(e.key==='Escape'){deselect();closeSide();} });
+
+if(window.ymaps&&ymaps.ready) ymaps.ready(initMap);
+setTimeout(function(){
+  if(!window.__mapOK){
+    $('#loadMsg').textContent=window.__ymapsFail
+      ? 'API Яндекс.Карт не загрузился. Проверьте соединение и обновите страницу.'
+      : 'Карта всё ещё загружается… Если не появится — проверьте доступ к api-maps.yandex.ru.';
+  }
+},9000);
+})();
+</script>
+</body>
+</html>

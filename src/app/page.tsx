@@ -1,19 +1,19 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import Sidebar from '@/components/explorers/Sidebar';
-import { Loader2, Globe2, Compass, Sparkles } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import Timeline from '@/components/explorers/Timeline';
+import { Loader2, Globe2, Compass, Sparkles, X } from 'lucide-react';
 import type { VoyageDTO, ExplorerDTO } from '@/lib/types';
+import { buildSmoothedRoute } from '@/lib/geo';
 
-// MapView uses Leaflet (browser-only), so it must be dynamically imported
-// with SSR disabled to avoid `window is not defined` during build.
-const MapView = dynamic(() => import('@/components/map/MapView'), {
+// Yandex Maps API requires `window` — disable SSR.
+const YandexMapView = dynamic(() => import('@/components/map/YandexMapView'), {
   ssr: false,
   loading: () => (
-    <div className="flex h-full w-full items-center justify-center bg-[#aadaff]">
-      <Loader2 className="h-8 w-8 animate-spin text-white" />
+    <div className="flex h-full w-full items-center justify-center bg-[#0B1420]">
+      <Loader2 className="h-8 w-8 animate-spin text-[#D9A441]" />
     </div>
   ),
 });
@@ -23,16 +23,29 @@ export default function Home() {
   const [explorers, setExplorers] = useState<ExplorerDTO[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [mapReady, setMapReady] = useState(false);
 
   const [selectedVoyageId, setSelectedVoyageId] = useState<string | null>(null);
   const [highlightedPointId, setHighlightedPointId] = useState<string | null>(null);
+  const [hoverVoyageId, setHoverVoyageId] = useState<string | null>(null);
 
   const [eraFilter, setEraFilter] = useState('all');
-  const [explorerFilter, setExplorerFilter] = useState('all');
+  const [typeFilter, setTypeFilter] = useState('all');
   const [search, setSearch] = useState('');
 
-  // Sidebar drawer toggle (mobile)
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [resetSignal, setResetSignal] = useState(0);
+
+  // Pre-compute smoothed route length (km) for each voyage — used by the
+  // detail panel. Done once when voyages load.
+  const voyagesKm = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const v of voyages) {
+      const pts = v.routePoints.map((p) => [p.latitude, p.longitude] as [number, number]);
+      map[v.id] = buildSmoothedRoute(pts).km;
+    }
+    return map;
+  }, [voyages]);
 
   const loadVoyages = useCallback(async () => {
     setLoading(true);
@@ -40,7 +53,7 @@ export default function Home() {
     try {
       const params = new URLSearchParams();
       if (eraFilter && eraFilter !== 'all') params.set('era', eraFilter);
-      if (explorerFilter && explorerFilter !== 'all') params.set('explorerId', explorerFilter);
+      if (typeFilter && typeFilter !== 'all') params.set('type', typeFilter);
 
       const res = await fetch(`/api/voyages?${params.toString()}`, { cache: 'no-store' });
       if (!res.ok) throw new Error('Не удалось загрузить плавания');
@@ -52,7 +65,7 @@ export default function Home() {
     } finally {
       setLoading(false);
     }
-  }, [eraFilter, explorerFilter]);
+  }, [eraFilter, typeFilter]);
 
   const loadExplorers = useCallback(async () => {
     try {
@@ -78,7 +91,7 @@ export default function Home() {
   useEffect(() => {
     setSelectedVoyageId(null);
     setHighlightedPointId(null);
-  }, [eraFilter, explorerFilter]);
+  }, [eraFilter, typeFilter]);
 
   const handleSelectVoyage = useCallback((id: string | null) => {
     setSelectedVoyageId(id);
@@ -95,67 +108,95 @@ export default function Home() {
     loadExplorers();
   }, [loadVoyages, loadExplorers]);
 
-  // Stats
+  const handleReset = useCallback(() => {
+    setSelectedVoyageId(null);
+    setHighlightedPointId(null);
+    setEraFilter('all');
+    setTypeFilter('all');
+    setResetSignal((n) => n + 1);
+  }, []);
+
+  // Stats for the header
   const totalPoints = voyages.reduce((acc, v) => acc + v.routePoints.length, 0);
-  const uniqueEras = new Set(voyages.map((v) => v.era)).size;
+  const totalKm = useMemo(() => {
+    return Object.values(voyagesKm).reduce((acc, k) => acc + k, 0);
+  }, [voyagesKm]);
 
   return (
-    <div className="flex h-screen flex-col bg-background">
-      {/* Top bar */}
-      <header className="z-30 flex shrink-0 items-center justify-between border-b bg-background px-4 py-2 shadow-sm">
+    <div className="flex h-screen flex-col bg-[#0B1420] text-[#EDE6D6]">
+      {/* === Top bar === */}
+      <header
+        className="z-30 flex h-[60px] shrink-0 items-center justify-between gap-4 px-5"
+        style={{
+          background: '#0C1826',
+          borderBottom: '1px solid rgba(217, 164, 65, 0.22)',
+        }}
+      >
         <div className="flex items-center gap-3">
-          <Button
-            variant="ghost"
-            size="sm"
+          {/* Mobile drawer toggle */}
+          <button
+            type="button"
             className="md:hidden"
             onClick={() => setDrawerOpen((v) => !v)}
             aria-label="Открыть меню"
           >
-            <Compass className="h-5 w-5" />
-          </Button>
+            <Compass className="h-5 w-5 text-[#D9A441]" />
+          </button>
 
-          <div className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-600 text-white shadow-sm">
-              <Globe2 className="h-5 w-5" />
-            </div>
+          {/* Brand */}
+          <div className="flex items-center gap-3">
+            <svg className="h-9 w-9" viewBox="0 0 44 44" aria-hidden>
+              <circle cx="22" cy="22" r="20" fill="none" stroke="#D9A441" strokeWidth="1.5" opacity="0.85" />
+              <circle cx="22" cy="22" r="15" fill="none" stroke="rgba(217,164,65,0.35)" strokeWidth="1" strokeDasharray="2 4" />
+              <g className="meridian-compass-needle">
+                <path d="M22 6 L25 22 L22 38 L19 22 Z" fill="#D9A441" />
+                <path d="M22 6 L25 22 L19 22 Z" fill="#E4572E" />
+              </g>
+              <circle cx="22" cy="22" r="2.2" fill="#EDE6D6" />
+            </svg>
             <div>
-              <h1 className="text-sm font-bold leading-tight sm:text-base">
-                Атлас исторических путешествий
-              </h1>
-              <p className="hidden text-[11px] text-muted-foreground sm:block">
-                Маршруты мореплавателей и исследователей — от древности до наших дней
-              </p>
+              <div className="font-[var(--font-display)] text-[21px] font-black leading-none tracking-[0.14em] text-[#EDE6D6]">
+                МЕРИДИАНЫ
+              </div>
+              <div className="mt-0.5 font-[var(--font-mono)] text-[10.5px] uppercase tracking-[0.12em] text-[#8CA0B4]">
+                атлас великих экспедиций
+              </div>
             </div>
           </div>
         </div>
 
-        {/* Quick stats */}
-        <div className="hidden items-center gap-4 text-xs text-muted-foreground lg:flex">
-          <Stat icon={<Compass className="h-3.5 w-3.5" />} value={explorers.length} label="путешественников" />
-          <Stat icon={<Globe2 className="h-3.5 w-3.5" />} value={voyages.length} label="плаваний" />
-          <Stat icon={<Sparkles className="h-3.5 w-3.5" />} value={totalPoints} label="точек" />
-          <Stat icon={<Globe2 className="h-3.5 w-3.5" />} value={uniqueEras} label="эпох" />
+        {/* Stats */}
+        <div className="hidden items-center gap-2 font-[var(--font-mono)] text-[11px] text-[#8CA0B4] tracking-wider lg:flex">
+          <span>{explorers.length} путешественников</span>
+          <span className="text-[#D9A441]">·</span>
+          <span>{voyages.length} экспедиций</span>
+          <span className="text-[#D9A441]">·</span>
+          <span>{totalPoints} точек</span>
+          <span className="text-[#D9A441]">·</span>
+          <span>{(totalKm / 1000).toFixed(0)} тыс. км</span>
         </div>
       </header>
 
-      {/* Main layout: sidebar + map */}
+      {/* === Main === */}
       <div className="relative flex min-h-0 flex-1">
         {/* Sidebar (desktop) */}
-        <div className="hidden w-[340px] shrink-0 border-r md:block">
+        <div className="hidden w-[372px] shrink-0 border-r border-white/[0.08] md:block">
           <Sidebar
             voyages={voyages}
+            voyagesKm={voyagesKm}
             explorers={explorers}
             loading={loading}
             selectedVoyageId={selectedVoyageId}
             highlightedPointId={highlightedPointId}
             eraFilter={eraFilter}
-            explorerFilter={explorerFilter}
+            typeFilter={typeFilter}
             search={search}
             onEraFilterChange={setEraFilter}
-            onExplorerFilterChange={setExplorerFilter}
+            onTypeFilterChange={setTypeFilter}
             onSearchChange={setSearch}
             onSelectVoyage={handleSelectVoyage}
             onSelectPoint={handleSelectPoint}
+            onHoverVoyage={setHoverVoyageId}
             onRefresh={handleRefresh}
           />
         </div>
@@ -164,25 +205,35 @@ export default function Home() {
         {drawerOpen && (
           <div className="absolute inset-0 z-40 md:hidden">
             <div
-              className="absolute inset-0 bg-black/50"
+              className="absolute inset-0 bg-black/60"
               onClick={() => setDrawerOpen(false)}
               aria-hidden
             />
-            <div className="absolute left-0 top-0 h-full w-[300px] max-w-[85vw] bg-background shadow-xl">
+            <div className="absolute left-0 top-0 h-full w-[min(372px,88vw)] border-r border-white/[0.08] bg-[#0F1D2E] shadow-2xl">
+              <button
+                type="button"
+                onClick={() => setDrawerOpen(false)}
+                aria-label="Закрыть меню"
+                className="absolute right-3 top-3 z-10 flex h-7 w-7 items-center justify-center rounded-full border border-white/20 text-[#8CA0B4] hover:border-[#D9A441] hover:text-[#EDE6D6]"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
               <Sidebar
                 voyages={voyages}
+                voyagesKm={voyagesKm}
                 explorers={explorers}
                 loading={loading}
                 selectedVoyageId={selectedVoyageId}
                 highlightedPointId={highlightedPointId}
                 eraFilter={eraFilter}
-                explorerFilter={explorerFilter}
+                typeFilter={typeFilter}
                 search={search}
                 onEraFilterChange={setEraFilter}
-                onExplorerFilterChange={setExplorerFilter}
+                onTypeFilterChange={setTypeFilter}
                 onSearchChange={setSearch}
                 onSelectVoyage={handleSelectVoyage}
                 onSelectPoint={handleSelectPoint}
+                onHoverVoyage={setHoverVoyageId}
                 onRefresh={handleRefresh}
               />
             </div>
@@ -192,55 +243,76 @@ export default function Home() {
         {/* Map */}
         <main className="relative min-h-0 flex-1">
           {error ? (
-            <div className="flex h-full flex-col items-center justify-center gap-3 bg-[#aadaff] p-8 text-center">
-              <p className="text-sm text-white drop-shadow">{error}</p>
-              <Button onClick={handleRefresh} variant="secondary" size="sm">
+            <div className="flex h-full flex-col items-center justify-center gap-3 bg-[#0B1420] p-8 text-center">
+              <p className="font-[var(--font-body)] text-sm text-[#EDE6D6]">{error}</p>
+              <button
+                onClick={handleRefresh}
+                className="rounded-md border border-[#D9A441]/40 bg-[#D9A441]/10 px-3 py-1.5 font-[var(--font-body)] text-xs text-[#D9A441] hover:bg-[#D9A441]/20"
+              >
                 Повторить
-              </Button>
+              </button>
             </div>
           ) : (
-            <MapView
+            <YandexMapView
               voyages={voyages}
               selectedVoyageId={selectedVoyageId}
-              onSelectPoint={handleSelectPoint}
               highlightedPointId={highlightedPointId}
+              onSelectPoint={handleSelectPoint}
+              onSelectVoyage={handleSelectVoyage}
+              onHoverVoyage={setHoverVoyageId}
+              resetSignal={resetSignal}
+              onReady={() => setMapReady(true)}
             />
           )}
 
-          {/* Loading overlay */}
-          {loading && (
-            <div className="pointer-events-none absolute right-3 top-3 z-10 flex items-center gap-2 rounded-full bg-white/90 px-3 py-1.5 text-xs font-medium text-foreground shadow-md backdrop-blur">
-              <Loader2 className="h-3 w-3 animate-spin" />
+          {/* Loading data overlay (above the map) */}
+          {loading && mapReady && (
+            <div className="pointer-events-none absolute right-3 top-3 z-10 flex items-center gap-2 rounded-full bg-[rgba(10,19,31,0.9)] px-3 py-1.5 font-[var(--font-mono)] text-[11px] text-[#EDE6D6] shadow-md backdrop-blur">
+              <Loader2 className="h-3 w-3 animate-spin text-[#D9A441]" />
               Загрузка маршрутов...
             </div>
           )}
 
-          {/* Hint when nothing is selected */}
+          {/* Hint pill */}
           {!loading && !selectedVoyageId && voyages.length > 0 && (
-            <div className="pointer-events-none absolute bottom-4 left-1/2 z-10 -translate-x-1/2 rounded-full bg-white/90 px-4 py-2 text-center text-xs text-muted-foreground shadow-md backdrop-blur">
-              Выберите плавание слева, чтобы увидеть детали маршрута
+            <div
+              className="meridian-hint pointer-events-none absolute left-1/2 top-3 z-[6] rounded-full border border-[#D9A441]/22 bg-[rgba(10,19,31,0.9)] px-4 py-2 font-[var(--font-body)] text-[12px] text-[#EDE6D6] shadow-md backdrop-blur"
+              style={{ transform: 'translateX(-50%)' }}
+            >
+              Выберите экспедицию слева — маршрут оживёт на карте
             </div>
+          )}
+
+          {/* Reset button */}
+          <div className="absolute left-3 top-3 z-[6] flex gap-2">
+            <button
+              type="button"
+              onClick={handleReset}
+              className="flex items-center gap-1.5 rounded-md border border-white/15 bg-[rgba(10,19,31,0.88)] px-3 py-1.5 font-[var(--font-body)] text-[12px] text-[#EDE6D6] transition-all hover:border-[#D9A441] hover:text-[#D9A441]"
+            >
+              <Globe2 className="h-3.5 w-3.5" />
+              Весь мир
+            </button>
+          </div>
+
+          {/* Hovered-voyage tooltip */}
+          {hoverVoyageId && hoverVoyageId !== selectedVoyageId && (
+            <div className="pointer-events-none absolute bottom-[120px] left-1/2 z-[6] -translate-x-1/2 rounded-md border border-[#D9A441]/30 bg-[rgba(10,19,31,0.95)] px-3 py-1.5 font-[var(--font-body)] text-xs text-[#EDE6D6] shadow-lg">
+              {voyages.find((v) => v.id === hoverVoyageId)?.title}
+            </div>
+          )}
+
+          {/* Timeline */}
+          {mapReady && !error && (
+            <Timeline
+              voyages={voyages}
+              selectedId={selectedVoyageId}
+              eraFilter={eraFilter}
+              onSelect={(id) => handleSelectVoyage(id)}
+            />
           )}
         </main>
       </div>
-    </div>
-  );
-}
-
-function Stat({
-  icon,
-  value,
-  label,
-}: {
-  icon: React.ReactNode;
-  value: number;
-  label: string;
-}) {
-  return (
-    <div className="flex items-center gap-1.5">
-      <span className="text-emerald-600">{icon}</span>
-      <span className="font-semibold text-foreground">{value}</span>
-      <span>{label}</span>
     </div>
   );
 }

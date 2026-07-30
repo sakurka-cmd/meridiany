@@ -4,7 +4,7 @@ import type { VoyageDTO } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
 
-// GET /api/voyages/[id] — get a single voyage with all route points
+// GET /api/voyages/[id] — single voyage with all route points
 export async function GET(
   _request: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -14,7 +14,7 @@ export async function GET(
     const voyage = await db.voyage.findUnique({
       where: { id },
       include: {
-        explorer: { select: { id: true, name: true } },
+        explorer: { select: { id: true, name: true, who: true } },
         routePoints: { orderBy: { order: 'asc' } },
       },
     });
@@ -34,9 +34,11 @@ export async function GET(
       endYear: voyage.endYear,
       era: voyage.era,
       type: voyage.type,
+      category: voyage.category,
       color: voyage.color,
       explorerId: voyage.explorer.id,
       explorerName: voyage.explorer.name,
+      explorerWho: voyage.explorer.who,
       routePoints: voyage.routePoints.map((p) => ({
         id: p.id,
         order: p.order,

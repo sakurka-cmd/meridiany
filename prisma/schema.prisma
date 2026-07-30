@@ -12,6 +12,7 @@ datasource db {
 model Explorer {
   id          String   @id @default(cuid())
   name        String
+  who         String?  // "португальская корона", "народы лапита" и т.п.
   birthYear   Int?
   deathYear   Int?
   nationality String?
@@ -31,7 +32,8 @@ model Voyage {
   startYear   Int?
   endYear     Int?
   era         String
-  type        String?
+  type        String?  // sea | land | air | mixed
+  category    String?  // "Кругосветное плавание", "Торговая", "Сухопутная" и т.п.
   color       String?
   routePoints RoutePoint[]
   createdAt   DateTime @default(now())
@@ -51,6 +53,7 @@ model RoutePoint {
   latitude    Float
   longitude   Float
   arrivalDate String?
+  isWaypoint  Boolean  @default(true) // false = вспомогательная точка для изгиба кривой (пока не используется)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 

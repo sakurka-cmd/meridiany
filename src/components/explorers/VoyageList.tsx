@@ -1,16 +1,16 @@
 'use client';
 
-import { Loader2 } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 
 interface VoyageListItem {
   id: string;
   title: string;
   explorerName: string;
+  explorerWho: string | null;
   startYear: number | null;
   endYear: number | null;
   era: string;
-  type: string | null;
+  category: string | null;
   color: string | null;
   pointCount: number;
 }
@@ -20,20 +20,21 @@ interface VoyageListProps {
   loading: boolean;
   selectedId: string | null;
   onSelect: (id: string) => void;
+  onHover?: (id: string | null) => void;
 }
 
 function formatYears(start: number | null, end: number | null): string {
   if (start === null && end === null) return '—';
   if (start !== null && end !== null) {
-    return start === end ? `${formatYear(start)}` : `${formatYear(start)} – ${formatYear(end)}`;
+    if (start === end) return formatYear(start);
+    return `${formatYear(start)} — ${formatYear(end)}`;
   }
-  if (start !== null) return formatYear(start);
-  return formatYear(end!);
+  return formatYear(start ?? end!);
 }
 
 function formatYear(y: number): string {
-  if (y < 0) return `${Math.abs(y)} г. до н.э.`;
-  return `${y} г.`;
+  if (y < 0) return `${Math.abs(y)} до н. э.`;
+  return `${y}`;
 }
 
 export default function VoyageList({
@@ -41,12 +42,13 @@ export default function VoyageList({
   loading,
   selectedId,
   onSelect,
+  onHover,
 }: VoyageListProps) {
   if (loading) {
     return (
-      <div className="space-y-2 p-3" aria-busy="true">
-        {[...Array(6)].map((_, i) => (
-          <Skeleton key={i} className="h-20 w-full" />
+      <div className="space-y-1 p-2" aria-busy="true">
+        {[...Array(8)].map((_, i) => (
+          <Skeleton key={i} className="h-16 w-full rounded-md" />
         ))}
       </div>
     );
@@ -55,63 +57,58 @@ export default function VoyageList({
   if (voyages.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center gap-2 p-8 text-center">
-        <Loader2 className="h-5 w-5 text-muted-foreground" aria-hidden />
-        <p className="text-sm text-muted-foreground">
-          Плаваний не найдено. Попробуйте изменить фильтры или сгенерировать новый маршрут через ИИ.
+        <p className="font-[var(--font-body)] text-sm text-[#8CA0B4]">
+          Плаваний не найдено.
+        </p>
+        <p className="font-[var(--font-body)] text-xs text-[#8CA0B4]/70">
+          Измените фильтры или сгенерируйте новый маршрут через ИИ-агента.
         </p>
       </div>
     );
   }
 
   return (
-    <ul className="space-y-1 p-2" role="list">
+    <ul className="meridian-scroll divide-y divide-white/[0.06]" role="list">
       {voyages.map((v) => {
         const active = v.id === selectedId;
+        const color = v.color ?? '#D9A441';
         return (
           <li key={v.id}>
             <button
               type="button"
               onClick={() => onSelect(v.id)}
+              onMouseEnter={() => onHover?.(v.id)}
+              onMouseLeave={() => onHover?.(null)}
               aria-pressed={active}
-              className={`group w-full text-left rounded-lg border p-3 transition-all ${
-                active
-                  ? 'border-primary bg-primary/5 shadow-sm'
-                  : 'border-border bg-card hover:border-primary/40 hover:bg-accent/50'
-              }`}
+              className="group flex w-full items-start gap-3 px-4 py-3 text-left transition-all hover:bg-white/[0.04]"
+              style={{
+                borderLeft: `3px solid ${active ? color : 'transparent'}`,
+                background: active ? 'rgba(217, 164, 65, 0.09)' : undefined,
+              }}
             >
-              <div className="flex items-start gap-3">
-                <span
-                  className="mt-1 h-3 w-3 shrink-0 rounded-full ring-2 ring-white"
-                  style={{ background: v.color ?? '#0891b2' }}
-                  aria-hidden
-                />
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center justify-between gap-2">
-                    <h4 className="truncate text-sm font-semibold leading-tight">
-                      {v.title}
-                    </h4>
-                    <span className="shrink-0 text-xs text-muted-foreground">
-                      {formatYears(v.startYear, v.endYear)}
-                    </span>
-                  </div>
-                  <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                    {v.explorerName}
-                  </p>
-                  <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                    <span className="rounded bg-secondary px-1.5 py-0.5 text-[10px] font-medium text-secondary-foreground">
-                      {v.era}
-                    </span>
-                    {v.type && (
-                      <span className="rounded bg-secondary px-1.5 py-0.5 text-[10px] font-medium text-secondary-foreground">
-                        {v.type}
-                      </span>
-                    )}
-                    <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                      {v.pointCount} точек
-                    </span>
-                  </div>
-                </div>
+              {/* Color swatch */}
+              <span
+                className="mt-1 h-6 w-6 shrink-0 rounded-full border-2"
+                style={{
+                  borderColor: color,
+                  background: `radial-gradient(circle at 35% 35%, ${color} 0 4px, transparent 5px)`,
+                }}
+                aria-hidden
+              />
+
+              <div className="min-w-0 flex-1">
+                <h4 className="font-[var(--font-display)] text-[15px] font-bold leading-tight text-[#EDE6D6]">
+                  {v.title}
+                </h4>
+                <p className="mt-0.5 truncate font-[var(--font-body)] text-[11.5px] text-[#8CA0B4]">
+                  {v.explorerWho ? `${v.explorerWho} · ` : ''}
+                  {formatYears(v.startYear, v.endYear)}
+                </p>
               </div>
+
+              <span className="shrink-0 pt-1 font-[var(--font-mono)] text-[9px] uppercase tracking-wider text-[#EDE6D6]/40">
+                {v.pointCount} точек
+              </span>
             </button>
           </li>
         );

@@ -14,6 +14,7 @@ interface AIPoint {
 
 interface AIGeneratedRoute {
   explorerName: string;
+  explorerWho?: string;
   explorerBio?: string;
   birthYear?: number;
   deathYear?: number;
@@ -24,6 +25,7 @@ interface AIGeneratedRoute {
   endYear?: number;
   era: string;
   type?: string;
+  category?: string;
   color?: string;
   points: AIPoint[];
 }
@@ -35,15 +37,24 @@ const SYSTEM_PROMPT = `Ты — историк-картограф и ИИ-аге
 ТРЕБОВАНИЯ:
 1. Возвращай ТОЛЬКО валидный JSON, без пояснений, без markdown-обёрток.
 2. Используй реальные географические координаты (широта от -90 до 90, долгота от -180 до 180).
-3. Каждое плавание должно содержать минимум 4 точки маршрута.
+3. Каждое плавание должно содержать минимум 5 точек маршрута — для плавной отрисовки кривой.
 4. Точки должны идти в хронологическом порядке путешествия.
-5. Поле era должно быть одной из строк: "Древность", "Средневековье", "Эпоха Великих географических открытий", "Новое время", "Новейшее время".
-6. Поле color — HEX-цвет линии в формате "#RRGGBB".
-7. Если данных о каких-то полях нет — пропускай их (они будут null).
+5. Поле era должно быть одной из строк: "Древность", "Средние века", "Век паруса", "XIX–XX века", "Современность".
+   Правила отнесения к эпохе:
+   - "Древность" — от палеолита до ~1000 г. н. э. (включая викингов, полинезийцев, античность)
+   - "Средние века" — 1000–1400 гг. (включая Марко Поло, Чжэн Хэ)
+   - "Век паруса" — 1400–1850 гг. (Великие географические открытия, кругосветки)
+   - "XIX–XX века" — 1850–1950 гг.
+   - "Современность" — после 1950 г.
+6. Поле type: "sea" (морской), "land" (сухопутный), "mixed" (смешанный), "air" (воздушный).
+7. Поле color — HEX-цвет линии в формате "#RRGGBB", выбирай контрастный к существующим.
+8. Поле category — короткая категория на русском: "Кругосветное плавание", "Торговая", "Исследовательская", "Дипломатическая", "Колонизационная", "Научная", "Спортивная", "Миграционная".
+9. Если данных о каких-то полях нет — пропускай их (они будут null).
 
 ФОРМАТ ОТВЕТА:
 {
-  "explorerName": "Имя путешественника",
+  "explorerName": "Имя путешественника или группы",
+  "explorerWho": "Краткое описание (например: 'португальская корона', 'народы лапита')",
   "explorerBio": "Краткая биография (1-3 предложения)",
   "birthYear": 1480,
   "deathYear": 1521,
@@ -52,14 +63,15 @@ const SYSTEM_PROMPT = `Ты — историк-картограф и ИИ-аге
   "voyageDescription": "Описание плавания (2-4 предложения)",
   "startYear": 1519,
   "endYear": 1522,
-  "era": "Эпоха Великих географических открытий",
-  "type": "Кругосветное плавание",
-  "color": "#dc2626",
+  "era": "Век паруса",
+  "type": "sea",
+  "category": "Кругосветное плавание",
+  "color": "#F26B1D",
   "points": [
     {
       "name": "Санлукар-де-Баррамеда",
-      "lat": 36.8,
-      "lng": -6.4,
+      "lat": 36.77,
+      "lng": -6.35,
       "description": "Отправление 20 сентября 1519 г.",
       "arrivalDate": "20 сентября 1519 г."
     }
@@ -105,8 +117,8 @@ function validateRoute(data: unknown): AIGeneratedRoute {
   if (typeof r.era !== 'string') {
     throw new Error('Поле era обязательно');
   }
-  if (!Array.isArray(r.points) || r.points.length < 4) {
-    throw new Error('Поле points должно содержать минимум 4 точки');
+  if (!Array.isArray(r.points) || r.points.length < 5) {
+    throw new Error('Поле points должно содержать минимум 5 точек');
   }
   const points = (r.points as unknown[]).map((p, i) => {
     const pt = p as Record<string, unknown>;
@@ -129,6 +141,7 @@ function validateRoute(data: unknown): AIGeneratedRoute {
   });
   return {
     explorerName: r.explorerName,
+    explorerWho: typeof r.explorerWho === 'string' ? r.explorerWho : undefined,
     explorerBio: typeof r.explorerBio === 'string' ? r.explorerBio : undefined,
     birthYear: typeof r.birthYear === 'number' ? r.birthYear : undefined,
     deathYear: typeof r.deathYear === 'number' ? r.deathYear : undefined,
@@ -138,7 +151,8 @@ function validateRoute(data: unknown): AIGeneratedRoute {
     startYear: typeof r.startYear === 'number' ? r.startYear : undefined,
     endYear: typeof r.endYear === 'number' ? r.endYear : undefined,
     era: r.era,
-    type: typeof r.type === 'string' ? r.type : undefined,
+    type: typeof r.type === 'string' ? r.type : 'sea',
+    category: typeof r.category === 'string' ? r.category : undefined,
     color: typeof r.color === 'string' && /^#[0-9a-fA-F]{6}$/.test(r.color) ? r.color : COLORS[Math.floor(Math.random() * COLORS.length)],
     points,
   };
@@ -200,6 +214,7 @@ export async function POST(request: Request) {
     const explorer = await db.explorer.upsert({
       where: { id: existing?.id ?? '__does_not_exist__' },
       update: {
+        who: route.explorerWho ?? existing?.who ?? null,
         bio: route.explorerBio ?? existing?.bio ?? null,
         birthYear: route.birthYear ?? existing?.birthYear ?? null,
         deathYear: route.deathYear ?? existing?.deathYear ?? null,
@@ -207,6 +222,7 @@ export async function POST(request: Request) {
       },
       create: {
         name: route.explorerName,
+        who: route.explorerWho ?? null,
         bio: route.explorerBio ?? null,
         birthYear: route.birthYear ?? null,
         deathYear: route.deathYear ?? null,
@@ -222,7 +238,8 @@ export async function POST(request: Request) {
         startYear: route.startYear ?? null,
         endYear: route.endYear ?? null,
         era: route.era,
-        type: route.type ?? null,
+        type: route.type ?? 'sea',
+        category: route.category ?? null,
         color: route.color,
         routePoints: {
           create: route.points.map((p, i) => ({
@@ -236,7 +253,7 @@ export async function POST(request: Request) {
         },
       },
       include: {
-        explorer: { select: { id: true, name: true } },
+        explorer: { select: { id: true, name: true, who: true } },
         routePoints: { orderBy: { order: 'asc' } },
       },
     });
@@ -253,9 +270,11 @@ export async function POST(request: Request) {
         endYear: voyage.endYear,
         era: voyage.era,
         type: voyage.type,
+        category: voyage.category,
         color: voyage.color,
         explorerId: voyage.explorer.id,
         explorerName: voyage.explorer.name,
+        explorerWho: voyage.explorer.who,
         routePoints: voyage.routePoints.map((p) => ({
           id: p.id,
           order: p.order,

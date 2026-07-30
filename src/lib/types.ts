@@ -2,17 +2,41 @@
 
 export type Era =
   | 'Древность'
-  | 'Средневековье'
-  | 'Эпоха Великих географических открытий'
-  | 'Новое время'
-  | 'Новейшее время';
+  | 'Средние века'
+  | 'Век паруса'
+  | 'XIX–XX века'
+  | 'Современность';
 
+// Russian human-readable era labels
 export const ERAS: Era[] = [
   'Древность',
-  'Средневековье',
-  'Эпоха Великих географических открытий',
-  'Новое время',
-  'Новейшее время',
+  'Средние века',
+  'Век паруса',
+  'XIX–XX века',
+  'Современность',
+];
+
+// Era slug keys (used for timeline band ordering, filter values)
+export const ERA_SLUGS: Record<Era, string> = {
+  'Древность': 'ancient',
+  'Средние века': 'medieval',
+  'Век паруса': 'sail',
+  'XIX–XX века': 'industry',
+  'Современность': 'modern',
+};
+
+// Era ordering with year ranges (used by the timeline)
+export const ERA_RANGES: Array<{
+  slug: string;
+  label: string;
+  start: number;
+  end: number;
+}> = [
+  { slug: 'ancient', label: 'Древность', start: -50000, end: 1000 },
+  { slug: 'medieval', label: 'Средние века', start: 1000, end: 1400 },
+  { slug: 'sail', label: 'Век паруса', start: 1400, end: 1850 },
+  { slug: 'industry', label: 'XIX–XX века', start: 1850, end: 1950 },
+  { slug: 'modern', label: 'Современность', start: 1950, end: 2030 },
 ];
 
 export interface RoutePointDTO {
@@ -33,15 +57,18 @@ export interface VoyageDTO {
   endYear: number | null;
   era: string;
   type: string | null;
+  category: string | null;
   color: string | null;
   explorerId: string;
   explorerName: string;
+  explorerWho: string | null;
   routePoints: RoutePointDTO[];
 }
 
 export interface ExplorerDTO {
   id: string;
   name: string;
+  who: string | null;
   birthYear: number | null;
   deathYear: number | null;
   nationality: string | null;

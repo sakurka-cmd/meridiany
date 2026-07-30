@@ -17,6 +17,7 @@ export async function GET() {
     const result: ExplorerDTO[] = explorers.map((e) => ({
       id: e.id,
       name: e.name,
+      who: e.who,
       birthYear: e.birthYear,
       deathYear: e.deathYear,
       nationality: e.nationality,

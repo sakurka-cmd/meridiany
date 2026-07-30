@@ -1,0 +1,428 @@
+'use client';
+
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import type {
+  YandexMap,
+  YandexMapsAPI,
+  YandexPlacemark,
+} from '@/lib/ymaps';
+import type { VoyageDTO } from '@/lib/types';
+import { buildSmoothedRoute, type LatLng } from '@/lib/geo';
+
+// === Loader: inject the Yandex Maps <script> once across the SPA ===
+const YANDEX_API_URL = 'https://api-maps.yandex.ru/2.1/?lang=ru_RU';
+
+let yandexLoadPromise: Promise<YandexMapsAPI | null> | null = null;
+
+function loadYandexAPI(): Promise<YandexMapsAPI | null> {
+  if (typeof window === 'undefined') return Promise.resolve(null);
+  if (window.ymaps) return Promise.resolve(window.ymaps);
+  if (yandexLoadPromise) return yandexLoadPromise;
+
+  yandexLoadPromise = new Promise((resolve) => {
+    const existing = document.querySelector<HTMLScriptElement>(
+      'script[data-meridian-yandex]'
+    );
+    if (existing) {
+      existing.addEventListener('load', () => resolve(window.ymaps ?? null));
+      existing.addEventListener('error', () => resolve(null));
+      return;
+    }
+    const script = document.createElement('script');
+    script.src = YANDEX_API_URL;
+    script.async = true;
+    script.setAttribute('data-meridian-yandex', '');
+    script.onerror = () => {
+      window.__meridianYandexFailed = true;
+      resolve(null);
+    };
+    script.onload = () => resolve(window.ymaps ?? null);
+    document.head.appendChild(script);
+    setTimeout(() => {
+      if (!window.ymaps) resolve(null);
+    }, 8000);
+  });
+
+  return yandexLoadPromise;
+}
+
+interface MapViewProps {
+  voyages: VoyageDTO[];
+  selectedVoyageId: string | null;
+  highlightedPointId?: string | null;
+  onSelectPoint?: (voyageId: string, pointId: string) => void;
+  onSelectVoyage?: (voyageId: string) => void;
+  onHoverVoyage?: (voyageId: string | null) => void;
+  resetSignal?: number;
+  onReady?: () => void;
+  onError?: () => void;
+}
+
+interface RouteRender {
+  voyageId: string;
+  color: string;
+  segments: LatLng[][]; // each segment is an array of [lat, lng]
+}
+
+interface SvgPath {
+  voyageId: string;
+  color: string;
+  d: string;
+  selected: boolean;
+}
+
+export default function YandexMapView({
+  voyages,
+  selectedVoyageId,
+  highlightedPointId,
+  onSelectPoint,
+  onSelectVoyage,
+  onHoverVoyage,
+  resetSignal,
+  onReady,
+  onError,
+}: MapViewProps) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const mapRef = useRef<YandexMap | null>(null);
+  const apiRef = useRef<YandexMapsAPI | null>(null);
+  const placemarksRef = useRef<Array<{ voyageId: string; marks: YandexPlacemark[] }>>([]);
+
+  const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [svgPaths, setSvgPaths] = useState<SvgPath[]>([]);
+
+  // Pre-compute route segments from voyage data (Catmull-Rom + antimeridian split).
+  // This is pure, so useMemo is fine.
+  const routes = useMemo<RouteRender[]>(() => {
+    return voyages.map((voyage) => ({
+      voyageId: voyage.id,
+      color: voyage.color ?? '#D9A441',
+      segments: buildSmoothedRoute(
+        voyage.routePoints.map((p) => [p.latitude, p.longitude] as LatLng)
+      ).segments,
+    }));
+  }, [voyages]);
+
+  // === Convert lat/lng → screen pixels relative to map container ===
+  const project = useCallback((lat: number, lng: number): [number, number] | null => {
+    const map = mapRef.current as unknown as {
+      converter?: {
+        globalToPage?: (coords: [number, number]) => [number, number];
+      };
+    } | null;
+    if (!map) return null;
+    try {
+      const fn = map.converter?.globalToPage;
+      if (typeof fn !== 'function') return null;
+      // globalToPage returns coordinates relative to the map container's
+      // top-left (NOT the document), so no offset subtraction is needed.
+      const [px, py] = fn.call(map.converter, [lat, lng]);
+      return [px, py];
+    } catch {
+      return null;
+    }
+  }, []);
+
+  // === Recompute SVG path strings from current map viewport ===
+  const refreshSvg = useCallback(() => {
+    if (status !== 'ready') return;
+    const sel = selectedVoyageId;
+    const next: SvgPath[] = [];
+    for (const r of routes) {
+      const isSelected = sel === null || sel === r.id;
+      for (const seg of r.segments) {
+        const screen: Array<[number, number]> = [];
+        for (const pt of seg) {
+          const s = project(pt[0], pt[1]);
+          if (s) screen.push(s);
+        }
+        if (screen.length < 2) continue;
+        const d = screen
+          .map((p, idx) => (idx === 0 ? `M${p[0]},${p[1]}` : `L${p[0]},${p[1]}`))
+          .join(' ');
+        next.push({ voyageId: r.voyageId, color: r.color, d, selected: isSelected });
+      }
+    }
+    setSvgPaths(next);
+  }, [routes, status, selectedVoyageId, project]);
+
+  // Keep a ref to refreshSvg so the init effect doesn't depend on it
+  // (refreshSvg changes whenever routes/status change, and re-running the
+  // init effect would destroy and recreate the map on every data update).
+  const refreshSvgRef = useRef(refreshSvg);
+  useEffect(() => {
+    refreshSvgRef.current = refreshSvg;
+  }, [refreshSvg]);
+
+  // === Init map once ===
+  useEffect(() => {
+    let cancelled = false;
+
+    loadYandexAPI().then((ymaps) => {
+      if (cancelled || !ymaps || !containerRef.current) {
+        if (!cancelled) {
+          setStatus('error');
+          onError?.();
+        }
+        return;
+      }
+      apiRef.current = ymaps;
+
+      ymaps.ready(() => {
+        if (cancelled || !containerRef.current) return;
+
+        try {
+          const map = new ymaps.Map(
+            containerRef.current,
+            {
+              center: [26, 12],
+              zoom: 2,
+              minZoom: 2,
+              maxZoom: 12,
+              type: 'yandex#map',
+            },
+            {
+              suppressMapOpenBlock: true,
+              yandexMapDisablePoiInteractivity: true,
+            }
+          );
+
+          try {
+            ['searchControl', 'trafficControl', 'geolocationControl', 'routeEditor', 'rulerControl', 'typeSelector', 'fullscreenControl'].forEach(
+              (c) => map.controls.remove(c)
+            );
+          } catch {
+            /* ignore */
+          }
+
+          // Redraw SVG overlay whenever the map moves or zooms
+          const handler = () => refreshSvgRef.current();
+          map.events.add('actiontick', handler);
+          map.events.add('actionend', handler);
+          map.events.add('boundschange', handler);
+          map.events.add('zoomchange', handler);
+
+          mapRef.current = map;
+          apiRef.current = ymaps;
+          setStatus('ready');
+          onReady?.();
+        } catch (err) {
+          console.error('Failed to init Yandex Map:', err);
+          setStatus('error');
+          onError?.();
+        }
+      });
+    });
+
+    return () => {
+      cancelled = true;
+      if (mapRef.current) {
+        try {
+          mapRef.current.destroy();
+        } catch {
+          /* noop */
+        }
+        mapRef.current = null;
+      }
+    };
+  }, []);
+
+  // === Render voyages (placemarks only — polylines drawn via SVG overlay) ===
+  useEffect(() => {
+    const map = mapRef.current;
+    const ymaps = apiRef.current;
+    if (!map || !ymaps || status !== 'ready') return;
+
+    // Clear previous placemarks
+    placemarksRef.current.forEach((entry) => {
+      entry.marks.forEach((m) => {
+        try { map.geoObjects.remove(m); } catch { /* noop */ }
+      });
+    });
+    placemarksRef.current = [];
+
+    if (voyages.length === 0) {
+      setTimeout(() => setSvgPaths([]), 0);
+      return;
+    }
+
+    voyages.forEach((voyage) => {
+      const color = voyage.color ?? '#D9A441';
+
+      // Waypoint placemarks (HTML based, work even in dev mode)
+      const layoutNormal = ymaps.templateLayoutFactory.createClass(
+        `<div class="meridian-waypoint" style="--c:${color}"><span>$[properties.idx]</span></div>`
+      );
+      const layoutStart = ymaps.templateLayoutFactory.createClass(
+        `<div class="meridian-waypoint meridian-waypoint--start" style="--c:${color}"><span>$[properties.idx]</span></div>`
+      );
+
+      const marks: YandexPlacemark[] = [];
+      voyage.routePoints.forEach((p, idx) => {
+        const isStart = idx === 0;
+        const pm = new ymaps.Placemark(
+          [p.latitude, p.longitude],
+          {
+            idx: String(idx + 1),
+            hintContent: `${idx + 1}. ${p.name}${p.arrivalDate ? ' · ' + p.arrivalDate : ''}`,
+          },
+          {
+            iconLayout: isStart ? layoutStart : layoutNormal,
+            iconOffset: [-12, -12],
+            iconShape: { type: 'Circle', coordinates: [12, 12], radius: 13 },
+          }
+        );
+        pm.events.add('click', () => {
+          onSelectPoint?.(voyage.id, p.id);
+        });
+        map.geoObjects.add(pm);
+        marks.push(pm);
+      });
+
+      placemarksRef.current.push({ voyageId: voyage.id, marks });
+    });
+
+    // Trigger SVG refresh on next tick — needs map to be in correct state
+    setTimeout(() => refreshSvg(), 50);
+  }, [voyages, status, onSelectPoint, refreshSvg]);
+
+  // Refresh SVG when routes change (deferred to avoid setState-in-effect lint)
+  useEffect(() => {
+    if (routes.length === 0) return;
+    const id = setTimeout(() => refreshSvg(), 0);
+    return () => clearTimeout(id);
+  }, [routes, refreshSvg]);
+
+  // === Reset view ===
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || status !== 'ready') return;
+    try {
+      map.setBounds([[-72, -179], [78, 179]], {
+        checkZoomRange: true,
+        duration: 700,
+      });
+    } catch {
+      /* noop */
+    }
+  }, [resetSignal, status]);
+
+  // === Fit to selected voyage bounds ===
+  useEffect(() => {
+    const map = mapRef.current;
+    const ymaps = apiRef.current;
+    if (!map || !ymaps || status !== 'ready') return;
+
+    if (selectedVoyageId) {
+      const sel = voyages.find((v) => v.id === selectedVoyageId);
+      if (sel && sel.routePoints.length > 0) {
+        const pts = sel.routePoints.map((p) => [p.latitude, p.longitude] as [number, number]);
+        const bounds = ymaps.util.bounds.fromPoints(pts);
+        try {
+          map.setBounds(bounds, {
+            checkZoomRange: true,
+            zoomMargin: 48,
+            duration: 650,
+          });
+        } catch {
+          /* noop */
+        }
+      }
+    }
+  }, [selectedVoyageId, voyages, status]);
+
+  // === Highlight waypoint ===
+  useEffect(() => {
+    if (!highlightedPointId || !mapRef.current) return;
+    const voyage = voyages.find((v) =>
+      v.routePoints.some((p) => p.id === highlightedPointId)
+    );
+    if (!voyage) return;
+    const pt = voyage.routePoints.find((p) => p.id === highlightedPointId);
+    if (!pt) return;
+    try {
+      mapRef.current.setCenter([pt.latitude, pt.longitude], 6, {
+        duration: 450,
+        checkZoomRange: true,
+      });
+    } catch {
+      /* noop */
+    }
+  }, [highlightedPointId, voyages]);
+
+  return (
+    <div className="relative h-full w-full" style={{ background: '#0B1420' }}>
+      <div ref={containerRef} className="h-full w-full" aria-label="Карта исторических маршрутов" />
+
+      {/* SVG overlay for polylines — rendered above the map, below placemarks.
+          We draw the routes ourselves because Yandex Maps in dev mode (no API
+          key) renders Placemarks but suppresses Polyline rendering on its
+          internal canvas. SVG paths over the map is a reliable workaround. */}
+      {status === 'ready' && (
+        <svg
+          className="pointer-events-none absolute inset-0 h-full w-full"
+          style={{ zIndex: 5 }}
+          aria-hidden
+        >
+          {svgPaths.map((p, i) => {
+            const opacity = p.selected ? 0.78 : 0.12;
+            const width = p.selected ? 3.2 : 1.5;
+            return (
+              <path
+                key={`${p.voyageId}-${i}`}
+                d={p.d}
+                stroke={p.color}
+                strokeWidth={width}
+                strokeOpacity={opacity}
+                fill="none"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                style={{
+                  pointerEvents: 'stroke',
+                  cursor: 'pointer',
+                }}
+                onClick={() => onSelectVoyage?.(p.voyageId)}
+                onMouseEnter={() => onHoverVoyage?.(p.voyageId)}
+                onMouseLeave={() => onHoverVoyage?.(null)}
+              />
+            );
+          })}
+        </svg>
+      )}
+
+      {status === 'loading' && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-[#0B1420] z-10">
+          <svg className="h-16 w-16" viewBox="0 0 44 44" aria-hidden>
+            <circle cx="22" cy="22" r="20" fill="none" stroke="#D9A441" strokeWidth="1.5" opacity="0.85" />
+            <circle cx="22" cy="22" r="15" fill="none" stroke="rgba(217,164,65,0.35)" strokeWidth="1" strokeDasharray="2 4" />
+            <g className="meridian-loader-spin">
+              <path d="M22 5 L25.4 22 L22 39 L18.6 22 Z" fill="#D9A441" />
+              <path d="M22 5 L25.4 22 L18.6 22 Z" fill="#E4572E" />
+            </g>
+            <circle cx="22" cy="22" r="2.4" fill="#EDE6D6" />
+          </svg>
+          <div className="font-[var(--font-display)] text-2xl font-black tracking-[0.22em] text-[#EDE6D6]">
+            МЕРИДИАНЫ
+          </div>
+          <div className="font-[var(--font-mono)] text-xs text-[#8CA0B4] tracking-wider">
+            прокладываем курс · загружаем карты Яндекса…
+          </div>
+        </div>
+      )}
+
+      {status === 'error' && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-[#0B1420] p-8 text-center">
+          <svg className="h-10 w-10 text-[#D9A441]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+            <circle cx="12" cy="12" r="10" />
+            <path d="M12 8v4M12 16h.01" />
+          </svg>
+          <p className="max-w-md font-[var(--font-body)] text-sm text-[#EDE6D6]">
+            API Яндекс.Карт не загрузилось.
+          </p>
+          <p className="max-w-md font-[var(--font-mono)] text-xs text-[#8CA0B4]">
+            Проверьте соединение с api-maps.yandex.ru и обновите страницу.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
