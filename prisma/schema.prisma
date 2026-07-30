@@ -1,0 +1,58 @@
+// Prisma schema for the Historical Routes project
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Explorer {
+  id          String   @id @default(cuid())
+  name        String
+  birthYear   Int?
+  deathYear   Int?
+  nationality String?
+  bio         String?
+  imageUrl    String?
+  voyages     Voyage[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Voyage {
+  id          String   @id @default(cuid())
+  explorerId  String
+  explorer    Explorer @relation(fields: [explorerId], references: [id], onDelete: Cascade)
+  title       String
+  description String?
+  startYear   Int?
+  endYear     Int?
+  era         String
+  type        String?
+  color       String?
+  routePoints RoutePoint[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([explorerId])
+  @@index([era])
+}
+
+model RoutePoint {
+  id          String   @id @default(cuid())
+  voyageId    String
+  voyage      Voyage   @relation(fields: [voyageId], references: [id], onDelete: Cascade)
+  order       Int
+  name        String
+  description String?
+  latitude    Float
+  longitude   Float
+  arrivalDate String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([voyageId])
+}
