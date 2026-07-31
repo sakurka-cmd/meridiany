@@ -122,6 +122,13 @@ export default function YandexMapView({
   // NB: passing [lat, lng] DIRECTLY to globalToPage is WRONG — it would
   // be interpreted as global pixel coords and produce wildly incorrect
   // results (lines drawn far to the north of the actual points).
+  //
+  // ANTIMERIDIAN HANDLING:
+  // Yandex's globalToPage "wraps" longitudes outside [-180, +180] back
+  // into that range, so passing lng+360 returns the same projected x as
+  // lng. Therefore we can't shift longitudes to fix antimeridian issues.
+  // Instead, we handle this in refreshSvg() by detecting "jumps" in
+  // projected x values and splitting segments at those points.
   const project = useCallback((lat: number, lng: number): [number, number] | null => {
     const map = mapRef.current as unknown as {
       converter?: {
@@ -131,10 +138,6 @@ export default function YandexMapView({
         get?: (key: string) => unknown;
       };
       getZoom?: () => number;
-      container?: {
-        getElement?: () => HTMLElement;
-        getSize?: () => [number, number];
-      };
     } | null;
     if (!map) return null;
     const rect = containerRef.current?.getBoundingClientRect();
@@ -160,22 +163,77 @@ export default function YandexMapView({
     if (status !== 'ready') return;
     const sel = selectedVoyageId;
     const next: SvgPath[] = [];
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+
+    const containerWidth = rect.width;
+    // Threshold for "jump" detection. Adjacent points in a smooth spline
+    // should have projected x values that differ by less than half the
+    // container width. Larger jumps indicate the segment is crossing the
+    // antimeridian and Yandex is projecting points on opposite sides of
+    // the container.
+    const jumpThreshold = containerWidth * 0.5;
+
     for (const r of routes) {
       // Only draw the selected voyage's routes when one is selected.
-      // Non-selected voyages' polylines are hidden (not drawn) to keep
-      // the map clean and focused.
       if (sel !== null && sel !== r.voyageId) continue;
       for (const seg of r.segments) {
-        const screen: Array<[number, number]> = [];
-        for (const pt of seg.points) {
-          const s = project(pt[0], pt[1]);
-          if (s) screen.push(s);
+        // Step 1: project each point with the original longitude.
+        const projected: Array<[number, number] | null> = seg.points.map(
+          (pt) => project(pt[0], pt[1])
+        );
+
+        // Step 2: walk through points and break the segment into
+        // sub-segments wherever the projected x "jumps" by more than
+        // jumpThreshold. Each sub-segment is drawn as a separate SVG
+        // path, so a route crossing the antimeridian appears as two
+        // disconnected lines (one going off-screen left, the other
+        // coming in from off-screen right) instead of one straight line
+        // cutting across the whole map.
+        const subSegments: Array<Array<[number, number]>> = [];
+        let current: Array<[number, number]> = [];
+        let lastValidX: number | null = null;
+
+        for (const xy of projected) {
+          if (xy === null) {
+            // Gap in projection — flush current sub-segment.
+            if (current.length >= 2) subSegments.push(current);
+            current = [];
+            lastValidX = null;
+            continue;
+          }
+          if (lastValidX !== null && Math.abs(xy[0] - lastValidX) > jumpThreshold) {
+            // Jump detected — flush current sub-segment and start a new one.
+            if (current.length >= 2) subSegments.push(current);
+            current = [];
+          }
+          current.push(xy);
+          lastValidX = xy[0];
         }
-        if (screen.length < 2) continue;
-        const d = screen
-          .map((p, idx) => (idx === 0 ? `M${p[0]},${p[1]}` : `L${p[0]},${p[1]}`))
-          .join(' ');
-        next.push({ voyageId: r.voyageId, color: r.color, d });
+        if (current.length >= 2) subSegments.push(current);
+
+        // Step 3: for each sub-segment, optionally shift it horizontally
+        // to bring it into view. If the sub-segment is entirely off-screen
+        // (e.g., projected x in [1000, 1300] when container is [0, 908]),
+        // we shift it by ±containerWidth to "wrap" it to the other side.
+        // This is approximate but produces visually correct results.
+        for (const sub of subSegments) {
+          const minX = Math.min(...sub.map((p) => p[0]));
+          const maxX = Math.max(...sub.map((p) => p[0]));
+          let shift = 0;
+          if (maxX < 0) {
+            // Entirely off-screen left → shift right by container width.
+            shift = containerWidth;
+          } else if (minX > containerWidth) {
+            // Entirely off-screen right → shift left by container width.
+            shift = -containerWidth;
+          }
+          const adjusted = shift !== 0 ? sub.map((p) => [p[0] + shift, p[1]] as [number, number]) : sub;
+          const d = adjusted
+            .map((p, idx) => (idx === 0 ? `M${p[0]},${p[1]}` : `L${p[0]},${p[1]}`))
+            .join(' ');
+          next.push({ voyageId: r.voyageId, color: r.color, d });
+        }
       }
     }
     setSvgPaths(next);
