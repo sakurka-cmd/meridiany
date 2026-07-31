@@ -167,11 +167,10 @@ export default function YandexMapView({
     if (!rect) return;
 
     const containerWidth = rect.width;
-    // Threshold for "jump" detection. Adjacent points in a smooth spline
-    // should have projected x values that differ by less than half the
-    // container width. Larger jumps indicate the segment is crossing the
-    // antimeridian and Yandex is projecting points on opposite sides of
-    // the container.
+    // Adjacent points in a smooth spline should have projected x values
+    // that differ by less than half the container width. Larger jumps
+    // indicate the segment is crossing the antimeridian and Yandex is
+    // projecting points on opposite sides of the container.
     const jumpThreshold = containerWidth * 0.5;
 
     for (const r of routes) {
@@ -185,25 +184,23 @@ export default function YandexMapView({
 
         // Step 2: walk through points and break the segment into
         // sub-segments wherever the projected x "jumps" by more than
-        // jumpThreshold. Each sub-segment is drawn as a separate SVG
-        // path, so a route crossing the antimeridian appears as two
-        // disconnected lines (one going off-screen left, the other
-        // coming in from off-screen right) instead of one straight line
-        // cutting across the whole map.
+        // jumpThreshold. This happens when a route crosses the
+        // antimeridian (180° meridian) and Yandex projects points on
+        // opposite sides of the container. Breaking the segment
+        // prevents a single SVG path from drawing a horizontal line
+        // across the whole map.
         const subSegments: Array<Array<[number, number]>> = [];
         let current: Array<[number, number]> = [];
         let lastValidX: number | null = null;
 
         for (const xy of projected) {
           if (xy === null) {
-            // Gap in projection — flush current sub-segment.
             if (current.length >= 2) subSegments.push(current);
             current = [];
             lastValidX = null;
             continue;
           }
           if (lastValidX !== null && Math.abs(xy[0] - lastValidX) > jumpThreshold) {
-            // Jump detected — flush current sub-segment and start a new one.
             if (current.length >= 2) subSegments.push(current);
             current = [];
           }
@@ -212,24 +209,18 @@ export default function YandexMapView({
         }
         if (current.length >= 2) subSegments.push(current);
 
-        // Step 3: for each sub-segment, optionally shift it horizontally
-        // to bring it into view. If the sub-segment is entirely off-screen
-        // (e.g., projected x in [1000, 1300] when container is [0, 908]),
-        // we shift it by ±containerWidth to "wrap" it to the other side.
-        // This is approximate but produces visually correct results.
+        // Step 3: draw each sub-segment as a separate SVG path.
+        // Sub-segments that are entirely off-screen are skipped (they
+        // represent the "other side" of the antimeridian, which is not
+        // visible in the current viewport). Sub-segments that are
+        // partially visible are drawn as-is — the line will extend to
+        // the edge of the SVG and be clipped by overflow:hidden.
         for (const sub of subSegments) {
           const minX = Math.min(...sub.map((p) => p[0]));
           const maxX = Math.max(...sub.map((p) => p[0]));
-          let shift = 0;
-          if (maxX < 0) {
-            // Entirely off-screen left → shift right by container width.
-            shift = containerWidth;
-          } else if (minX > containerWidth) {
-            // Entirely off-screen right → shift left by container width.
-            shift = -containerWidth;
-          }
-          const adjusted = shift !== 0 ? sub.map((p) => [p[0] + shift, p[1]] as [number, number]) : sub;
-          const d = adjusted
+          // Skip if entirely off-screen.
+          if (maxX < 0 || minX > containerWidth) continue;
+          const d = sub
             .map((p, idx) => (idx === 0 ? `M${p[0]},${p[1]}` : `L${p[0]},${p[1]}`))
             .join(' ');
           next.push({ voyageId: r.voyageId, color: r.color, d });
@@ -384,6 +375,10 @@ export default function YandexMapView({
             iconLayout: isStart ? layoutStart : layoutNormal,
             iconOffset: [-12, -12],
             iconShape: { type: 'Circle', coordinates: [12, 12], radius: 13 },
+            // High z-index so placemarks stay on top of the SVG route overlay.
+            zIndex: 1000,
+            // zIndexHover is used by Yandex when the placemark is hovered.
+            zIndexHover: 1100,
           }
         );
         pm.events.add('click', () => {
@@ -486,9 +481,10 @@ export default function YandexMapView({
       />
 
       {/* SVG overlay for route polylines.
-          We draw routes ourselves because Yandex Maps in dev mode (or with
-          an unverified API key) may suppress native Polyline canvas rendering.
-          The overlay is positioned above map tiles but below placemarks. */}
+          Positioned above map tiles (z-index: 5) so lines are visible.
+          Placemarks are rendered by Yandex with explicit zIndex=1000
+          (see options below) so their numbered markers stay ON TOP of
+          the lines. */}
       {status === 'ready' && (
         <svg
           className="pointer-events-none absolute inset-0 h-full w-full"

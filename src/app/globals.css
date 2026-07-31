@@ -197,6 +197,12 @@
   align-items: center;
   justify-content: center;
   box-shadow: 0 2px 8px rgba(4, 10, 18, 0.55);
+  /* Force placemarks to render above the SVG route overlay (z-index: 5).
+     Placemarks are HTML elements rendered by Yandex Maps in a pane
+     without its own stacking context, so they share the same stacking
+     context as our SVG overlay. Setting a high z-index here ensures
+     the numbered markers stay visible on top of the route polylines. */
+  z-index: 1000 !important;
 }
 
 .meridian-waypoint--start::after {
