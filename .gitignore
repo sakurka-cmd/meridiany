@@ -30,12 +30,12 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
+# env files
 .env*
+!.env.example
 
 # vercel
 .vercel
-
 
 # typescript
 *.tsbuildinfo
@@ -50,5 +50,15 @@ test
 prompt
 
 server.log
-# Skills directory
+
+# SQLite database (created on first run / seeded)
+/db/*.db
+/db/*.db-journal
+
+# Tool-generated artifacts
+/tool-results/
+/download/
+
+# Skills directory (internal, not part of the app)
 /skills/
+/.zscripts/

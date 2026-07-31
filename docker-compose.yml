@@ -1,0 +1,38 @@
+# ============================================================
+#  docker-compose for "Меридианы — атлас великих экспедиций"
+# ============================================================
+#  Usage:
+#    docker compose up -d --build
+#    Open: http://localhost:3000
+#  Stop:
+#    docker compose down
+#  Reset DB:
+#    docker compose down -v
+# ============================================================
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: meridiany
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=file:/app/db/custom.db
+      # Override if you want a different Yandex Maps API key
+      - NEXT_PUBLIC_YANDEX_API_KEY=${NEXT_PUBLIC_YANDEX_API_KEY:-a49f8b63-e7ea-47e5-b86a-fd86d778d4dc}
+    volumes:
+      # Persistent SQLite storage
+      - meridiany-db:/app/db
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+volumes:
+  meridiany-db:

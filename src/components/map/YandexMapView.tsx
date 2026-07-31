@@ -111,23 +111,44 @@ export default function YandexMapView({
   }, [voyages]);
 
   // === Convert lat/lng → container-relative pixels ===
+  // CORRECT approach:
+  //   1. map.options.get('projection').toGlobalPixels([lat, lng], zoom)
+  //      converts geographic coords to global pixel coords (world pixels
+  //      at the given zoom level).
+  //   2. map.converter.globalToPage(worldPixels) converts global pixels
+  //      to page (document) pixels.
+  //   3. Subtract container offset to get container-relative pixels.
+  //
+  // NB: passing [lat, lng] DIRECTLY to globalToPage is WRONG — it would
+  // be interpreted as global pixel coords and produce wildly incorrect
+  // results (lines drawn far to the north of the actual points).
   const project = useCallback((lat: number, lng: number): [number, number] | null => {
     const map = mapRef.current as unknown as {
       converter?: {
         globalToPage?: (coords: [number, number]) => [number, number];
+      };
+      options?: {
+        get?: (key: string) => unknown;
+      };
+      getZoom?: () => number;
+      container?: {
+        getElement?: () => HTMLElement;
+        getSize?: () => [number, number];
       };
     } | null;
     if (!map) return null;
     const rect = containerRef.current?.getBoundingClientRect();
     if (!rect) return null;
     try {
+      const projection = map.options?.get?.('projection') as
+        | { toGlobalPixels?: (c: [number, number], z: number) => [number, number] }
+        | undefined;
+      if (!projection?.toGlobalPixels) return null;
+      const zoom = map.getZoom ? map.getZoom() : 2;
+      const globalPixels = projection.toGlobalPixels([lat, lng], zoom);
       const fn = map.converter?.globalToPage;
       if (typeof fn !== 'function') return null;
-      // globalToPage returns page (document) coordinates.
-      // getBoundingClientRect returns viewport coordinates (no scroll).
-      // container position in document = rect.left + scrollX.
-      // So container-relative = pageCoord - (rect.left + scrollX).
-      const [px, py] = fn.call(map.converter, [lat, lng]);
+      const [px, py] = fn.call(map.converter, globalPixels);
       return [px - rect.left - window.scrollX, py - rect.top - window.scrollY];
     } catch {
       return null;
@@ -224,6 +245,21 @@ export default function YandexMapView({
           apiRef.current = ymaps;
           setStatus('ready');
           onReady?.();
+
+          // Yandex Maps needs an explicit "fit to viewport" call after
+          // initialization so its internal pixel coordinate cache matches
+          // the actual container size. Without this, globalToPage returns
+          // stale coordinates and SVG lines drift away from placemarks.
+          setTimeout(() => {
+            try {
+              (map as unknown as {
+                container?: { fitToViewport?: () => void };
+              }).container?.fitToViewport?.();
+              refreshSvgRef.current();
+            } catch {
+              /* noop */
+            }
+          }, 100);
         } catch (err) {
           console.error('Failed to init Yandex Map:', err);
           setStatus('error');
