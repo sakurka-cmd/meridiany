@@ -132,6 +132,9 @@ export interface YandexPlacemark {
   events: {
     add: (event: string, cb: () => void) => void;
   };
+  options: {
+    set: (key: string, value: unknown) => void;
+  };
 }
 
 export {};

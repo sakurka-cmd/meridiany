@@ -197,7 +197,6 @@ export default function Home() {
             onSelectVoyage={handleSelectVoyage}
             onSelectPoint={handleSelectPoint}
             onHoverVoyage={setHoverVoyageId}
-            onRefresh={handleRefresh}
           />
         </div>
 
@@ -234,7 +233,6 @@ export default function Home() {
                 onSelectVoyage={handleSelectVoyage}
                 onSelectPoint={handleSelectPoint}
                 onHoverVoyage={setHoverVoyageId}
-                onRefresh={handleRefresh}
               />
             </div>
           </div>

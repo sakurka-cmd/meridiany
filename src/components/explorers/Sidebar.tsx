@@ -2,7 +2,6 @@
 
 import { useMemo } from 'react';
 import VoyageList from './VoyageList';
-import AIRouteDialog from './AIRouteDialog';
 import VoyageDetail from './VoyageDetail';
 import { ERA_RANGES } from '@/lib/types';
 import { Search, Compass, ChevronLeft, Ship, Route as RouteIcon } from 'lucide-react';
@@ -24,7 +23,6 @@ interface SidebarProps {
   onSelectVoyage: (id: string | null) => void;
   onSelectPoint: (voyageId: string, pointId: string) => void;
   onHoverVoyage?: (id: string | null) => void;
-  onRefresh: () => void;
 }
 
 interface VoyageListItem {
@@ -64,7 +62,6 @@ export default function Sidebar({
   onSelectVoyage,
   onSelectPoint,
   onHoverVoyage,
-  onRefresh,
 }: SidebarProps) {
   const filteredList = useMemo<VoyageListItem[]>(() => {
     return voyages
@@ -174,7 +171,6 @@ export default function Sidebar({
                 className="w-full rounded-md border border-white/13 bg-white/[0.05] py-2 pl-9 pr-3 font-[var(--font-body)] text-[13px] text-[#EDE6D6] outline-none transition-colors placeholder:text-[#8CA0B4]/60 focus:border-[#D9A441]"
               />
             </div>
-            <AIRouteDialog onCreated={onRefresh} />
           </div>
 
           {/* Era chips */}
