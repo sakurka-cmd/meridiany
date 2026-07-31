@@ -62,3 +62,10 @@ server.log
 # Skills directory (internal, not part of the app)
 /skills/
 /.zscripts/
+
+# Sandboxed scaffolding artifacts (not part of the app)
+/.zscripts/
+/examples/
+/mini-services/
+/tests/
+/upload/
