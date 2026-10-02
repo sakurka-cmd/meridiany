@@ -47,10 +47,13 @@ COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
 
-# Prisma needs its generated client + schema
+# Prisma needs its generated client + schema + CLI
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/node_modules/@prisma/client ./node_modules/@prisma/client
 COPY --from=builder /app/prisma ./prisma
+
+# Install prisma CLI for db push at startup
+RUN npm install prisma --legacy-peer-deps
 
 # SQLite DB volume mount point
 RUN mkdir -p /app/db
@@ -64,4 +67,4 @@ COPY --from=builder /app/src/lib/types.ts ./src/lib/types.ts
 EXPOSE 3000
 
 # Container starts: run migrations (idempotent), seed if DB is empty, start server
-CMD ["sh", "-c", "npx prisma db push --accept-data-loss && node server.js"]
+CMD ["sh", "-c", "node node_modules/prisma/build/index.js db push --accept-data-loss && node server.js"]

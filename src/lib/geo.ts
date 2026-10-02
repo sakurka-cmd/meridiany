@@ -179,7 +179,9 @@ export function pathLengthKm(path: LatLng[]): number {
 
 /**
  * Convenience: from an array of route points, return the dense smoothed
- * segments ready to feed to a map renderer, plus the total length in km.
+ * path ready to feed to a map renderer, plus the total length in km.
+ * Returns a single continuous path (longitudes may exceed [-180, +180])
+ * so the renderer can project it as one unbroken line.
  */
 export function buildSmoothedRoute(
   points: LatLng[]
@@ -187,7 +189,6 @@ export function buildSmoothedRoute(
   if (points.length < 2) return { segments: [], km: 0 };
   const unwrapped = unwrapLng(points);
   const dense = smoothPath(unwrapped, 22);
-  const segments = splitDense(dense);
   const km = Math.round(pathLengthKm(dense));
-  return { segments, km };
+  return { segments: [dense], km };
 }

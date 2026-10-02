@@ -1,11 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
-import type {
-  YandexMap,
-  YandexMapsAPI,
-  YandexPlacemark,
-} from '@/lib/ymaps';
+import type { YandexMap, YandexMapsAPI } from '@/lib/ymaps';
 import type { VoyageDTO } from '@/lib/types';
 import { buildSmoothedRoute, type LatLng } from '@/lib/geo';
 
@@ -68,16 +64,38 @@ interface RouteSegment {
   points: LatLng[]; // [lat, lng] pairs
 }
 
+interface RoutePointMarker {
+  id: string;
+  lat: number;
+  lng: number;
+  idx: number;
+  name: string;
+  date?: string | null;
+}
+
 interface RenderedRoute {
   voyageId: string;
   color: string;
   segments: RouteSegment[];
+  points: RoutePointMarker[];
 }
 
 interface SvgPath {
   voyageId: string;
   color: string;
   d: string;
+}
+
+interface SvgMarker {
+  voyageId: string;
+  pointId: string;
+  color: string;
+  idx: number;
+  name: string;
+  date?: string | null;
+  isStart: boolean;
+  x: number;
+  y: number;
 }
 
 export default function YandexMapView({
@@ -94,10 +112,10 @@ export default function YandexMapView({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<YandexMap | null>(null);
   const apiRef = useRef<YandexMapsAPI | null>(null);
-  const placemarksRef = useRef<Array<{ voyageId: string; marks: YandexPlacemark[] }>>([]);
 
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [svgPaths, setSvgPaths] = useState<SvgPath[]>([]);
+  const [svgMarkers, setSvgMarkers] = useState<SvgMarker[]>([]);
 
   // Pre-compute smoothed route segments from voyage data (pure, memoized).
   const routes = useMemo<RenderedRoute[]>(() => {
@@ -107,128 +125,168 @@ export default function YandexMapView({
       segments: buildSmoothedRoute(
         voyage.routePoints.map((p) => [p.latitude, p.longitude] as LatLng)
       ).segments.map((seg) => ({ points: seg })),
+      points: voyage.routePoints.map((p, i) => ({
+        id: p.id,
+        lat: p.latitude,
+        lng: p.longitude,
+        idx: i + 1,
+        name: p.name,
+        date: p.arrivalDate,
+      })),
     }));
   }, [voyages]);
 
-  // === Convert lat/lng → container-relative pixels ===
-  // CORRECT approach:
-  //   1. map.options.get('projection').toGlobalPixels([lat, lng], zoom)
-  //      converts geographic coords to global pixel coords (world pixels
-  //      at the given zoom level).
-  //   2. map.converter.globalToPage(worldPixels) converts global pixels
-  //      to page (document) pixels.
-  //   3. Subtract container offset to get container-relative pixels.
-  //
-  // NB: passing [lat, lng] DIRECTLY to globalToPage is WRONG — it would
-  // be interpreted as global pixel coords and produce wildly incorrect
-  // results (lines drawn far to the north of the actual points).
-  //
-  // ANTIMERIDIAN HANDLING:
-  // Yandex's globalToPage "wraps" longitudes outside [-180, +180] back
-  // into that range, so passing lng+360 returns the same projected x as
-  // lng. Therefore we can't shift longitudes to fix antimeridian issues.
-  // Instead, we handle this in refreshSvg() by detecting "jumps" in
-  // projected x values and splitting segments at those points.
-  const project = useCallback((lat: number, lng: number): [number, number] | null => {
+  // === Convert lat/lng → global pixels ===
+  // Uses the projection directly. toGlobalPixels wraps longitudes into the
+  // primary world copy [0, worldWidth); the caller re-unwraps x where
+  // continuity is needed (routes) or picks the copy nearest the viewport
+  // (markers), so antimeridian-crossing geometry renders correctly.
+  const projectRaw = useCallback((lat: number, lng: number): [number, number] | null => {
     const map = mapRef.current as unknown as {
-      converter?: {
-        globalToPage?: (coords: [number, number]) => [number, number];
-      };
       options?: {
         get?: (key: string) => unknown;
       };
       getZoom?: () => number;
     } | null;
     if (!map) return null;
-    const rect = containerRef.current?.getBoundingClientRect();
-    if (!rect) return null;
     try {
       const projection = map.options?.get?.('projection') as
         | { toGlobalPixels?: (c: [number, number], z: number) => [number, number] }
         | undefined;
       if (!projection?.toGlobalPixels) return null;
       const zoom = map.getZoom ? map.getZoom() : 2;
-      const globalPixels = projection.toGlobalPixels([lat, lng], zoom);
-      const fn = map.converter?.globalToPage;
-      if (typeof fn !== 'function') return null;
-      const [px, py] = fn.call(map.converter, globalPixels);
-      return [px - rect.left - window.scrollX, py - rect.top - window.scrollY];
+      return projection.toGlobalPixels([lat, lng], zoom);
     } catch {
       return null;
     }
   }, []);
 
-  // === Recompute SVG paths from current map viewport ===
+  // map.converter.globalToPage is a pure translation from global pixel
+  // space to page (document) space. Capture it bound to its converter.
+  const globalToPageRef = useRef<{ fn: ((coords: [number, number]) => [number, number]) | null }>({ fn: null });
+
+  useEffect(() => {
+    const map = mapRef.current as unknown as {
+      converter?: {
+        globalToPage?: (coords: [number, number]) => [number, number];
+      };
+    } | null;
+    const conv = map?.converter;
+    const raw = conv?.globalToPage;
+    globalToPageRef.current.fn =
+      typeof raw === 'function' && conv ? (c) => raw.call(conv, c) : null;
+  }, [status]);
+
+  // === Recompute SVG overlay (routes + waypoint markers) on viewport change ===
   const refreshSvg = useCallback(() => {
     if (status !== 'ready') return;
     const sel = selectedVoyageId;
-    const next: SvgPath[] = [];
     const rect = containerRef.current?.getBoundingClientRect();
     if (!rect) return;
+    const globalToPage = globalToPageRef.current.fn;
+    if (!globalToPage) return;
+
+    // One shared global→page offset for this map state, derived from a
+    // fixed probe point so routes and markers always agree.
+    const probe = projectRaw(0, 0);
+    if (!probe) return;
+    let pageProbe: [number, number];
+    try {
+      pageProbe = globalToPage(probe);
+    } catch {
+      return;
+    }
+    const offsetX = pageProbe[0] - probe[0];
+    const offsetY = pageProbe[1] - probe[1];
+    const scrollX = window.scrollX;
+    const scrollY = window.scrollY;
+    const toContainerX = (gx: number) => gx + offsetX - rect.left - scrollX;
+    const toContainerY = (gy: number) => gy + offsetY - rect.top - scrollY;
 
     const containerWidth = rect.width;
-    // Adjacent points in a smooth spline should have projected x values
-    // that differ by less than half the container width. Larger jumps
-    // indicate the segment is crossing the antimeridian and Yandex is
-    // projecting points on opposite sides of the container.
-    const jumpThreshold = containerWidth * 0.5;
+    const containerHeight = rect.height;
+    // World width in global pixels at the current zoom.
+    const worldWidth = 256 * Math.pow(2, mapRef.current?.getZoom?.() ?? 2);
+
+    const nextPaths: SvgPath[] = [];
+    const nextMarkers: SvgMarker[] = [];
 
     for (const r of routes) {
-      // Only draw the selected voyage's routes when one is selected.
+      // Only draw the selected voyage when one is selected.
       if (sel !== null && sel !== r.voyageId) continue;
+
       for (const seg of r.segments) {
-        // Step 1: project each point with the original longitude.
-        const projected: Array<[number, number] | null> = seg.points.map(
-          (pt) => project(pt[0], pt[1])
-        );
-
-        // Step 2: walk through points and break the segment into
-        // sub-segments wherever the projected x "jumps" by more than
-        // jumpThreshold. This happens when a route crosses the
-        // antimeridian (180° meridian) and Yandex projects points on
-        // opposite sides of the container. Breaking the segment
-        // prevents a single SVG path from drawing a horizontal line
-        // across the whole map.
-        const subSegments: Array<Array<[number, number]>> = [];
-        let current: Array<[number, number]> = [];
-        let lastValidX: number | null = null;
-
-        for (const xy of projected) {
-          if (xy === null) {
-            if (current.length >= 2) subSegments.push(current);
-            current = [];
-            lastValidX = null;
-            continue;
+        // Project every point, then re-unwrap x relative to the PREVIOUS
+        // point (minimal-distance rule). toGlobalPixels wraps into the
+        // primary world copy, so this reconstructs a continuous pixel
+        // path even for routes that wrap around the globe
+        // (circumnavigation spans ≈ worldWidth). Normalizing against a
+        // fixed anchor instead would fold the tail of a 360° route back
+        // and draw a horizontal line across the whole map.
+        const pts: Array<[number, number]> = [];
+        let prevX: number | null = null;
+        for (const pt of seg.points) {
+          const gp = projectRaw(pt[0], pt[1]);
+          if (!gp) continue;
+          let x = gp[0];
+          if (prevX !== null) {
+            while (x - prevX > worldWidth / 2) x -= worldWidth;
+            while (prevX - x > worldWidth / 2) x += worldWidth;
           }
-          if (lastValidX !== null && Math.abs(xy[0] - lastValidX) > jumpThreshold) {
-            if (current.length >= 2) subSegments.push(current);
-            current = [];
-          }
-          current.push(xy);
-          lastValidX = xy[0];
+          pts.push([x, gp[1]]);
+          prevX = x;
         }
-        if (current.length >= 2) subSegments.push(current);
+        if (pts.length < 2) continue;
+        const cont = pts.map((p) => [toContainerX(p[0]), toContainerY(p[1])] as [number, number]);
 
-        // Step 3: draw each sub-segment as a separate SVG path.
-        // Sub-segments that are entirely off-screen are skipped (they
-        // represent the "other side" of the antimeridian, which is not
-        // visible in the current viewport). Sub-segments that are
-        // partially visible are drawn as-is — the line will extend to
-        // the edge of the SVG and be clipped by overflow:hidden.
-        for (const sub of subSegments) {
-          const minX = Math.min(...sub.map((p) => p[0]));
-          const maxX = Math.max(...sub.map((p) => p[0]));
-          // Skip if entirely off-screen.
-          if (maxX < 0 || minX > containerWidth) continue;
-          const d = sub
-            .map((p, idx) => (idx === 0 ? `M${p[0]},${p[1]}` : `L${p[0]},${p[1]}`))
+        // The viewport is a window into one periodic copy of the world,
+        // so the route may be visible through a neighbouring copy.
+        // Draw copies shifted by -W, 0, +W; SVG clips what's outside.
+        for (const shift of [-worldWidth, 0, worldWidth]) {
+          let visible = false;
+          for (const p of cont) {
+            const x = p[0] + shift;
+            if (x >= 0 && x <= containerWidth) { visible = true; break; }
+          }
+          if (!visible) continue;
+          const d = cont
+            .map((p, idx) => (idx === 0 ? `M${p[0] + shift},${p[1]}` : `L${p[0] + shift},${p[1]}`))
             .join(' ');
-          next.push({ voyageId: r.voyageId, color: r.color, d });
+          nextPaths.push({ voyageId: r.voyageId, color: r.color, d });
         }
       }
+
+      // Waypoint markers: pick the world copy nearest the viewport
+      // centre. Yandex placemarks can't do this (they always render in
+      // the primary copy, so markers near the antimeridian fall off
+      // screen), which is why markers are drawn here in the same SVG.
+      const centerX = containerWidth / 2;
+      for (const p of r.points) {
+        const gp = projectRaw(p.lat, p.lng);
+        if (!gp) continue;
+        const x0 = toContainerX(gp[0]);
+        const k = Math.round((centerX - x0) / worldWidth);
+        const x = x0 + k * worldWidth;
+        const y = toContainerY(gp[1]);
+        if (x < -14 || x > containerWidth + 14) continue;
+        if (y < -14 || y > containerHeight + 14) continue;
+        nextMarkers.push({
+          voyageId: r.voyageId,
+          pointId: p.id,
+          color: r.color,
+          idx: p.idx,
+          name: p.name,
+          date: p.date,
+          isStart: p.idx === 1,
+          x,
+          y,
+        });
+      }
     }
-    setSvgPaths(next);
-  }, [routes, status, selectedVoyageId, project]);
+
+    setSvgPaths(nextPaths);
+    setSvgMarkers(nextMarkers);
+  }, [routes, status, selectedVoyageId, projectRaw]);
 
   // Keep a ref to refreshSvg so the init effect doesn't re-run when it changes.
   const refreshSvgRef = useRef(refreshSvg);
@@ -298,7 +356,7 @@ export default function YandexMapView({
           // Yandex Maps needs an explicit "fit to viewport" call after
           // initialization so its internal pixel coordinate cache matches
           // the actual container size. Without this, globalToPage returns
-          // stale coordinates and SVG lines drift away from placemarks.
+          // stale coordinates and SVG lines drift away from markers.
           setTimeout(() => {
             try {
               (map as unknown as {
@@ -329,82 +387,6 @@ export default function YandexMapView({
       }
     };
   }, []);
-
-  // === Render placemarks when voyages change ===
-  useEffect(() => {
-    const map = mapRef.current;
-    const ymaps = apiRef.current;
-    if (!map || !ymaps || status !== 'ready') return;
-
-    // Clear previous placemarks
-    placemarksRef.current.forEach((entry) => {
-      entry.marks.forEach((m) => {
-        try {
-          map.geoObjects.remove(m);
-        } catch {
-          /* noop */
-        }
-      });
-    });
-    placemarksRef.current = [];
-
-    if (voyages.length === 0) return;
-
-    const newPlacemarks: Array<{ voyageId: string; marks: YandexPlacemark[] }> = [];
-
-    voyages.forEach((voyage) => {
-      const colorHex = voyage.color ?? '#D9A441';
-
-      const layoutNormal = ymaps.templateLayoutFactory.createClass(
-        `<div class="meridian-waypoint" style="--c:${colorHex}"><span>$[properties.idx]</span></div>`
-      );
-      const layoutStart = ymaps.templateLayoutFactory.createClass(
-        `<div class="meridian-waypoint meridian-waypoint--start" style="--c:${colorHex}"><span>$[properties.idx]</span></div>`
-      );
-
-      const marks: YandexPlacemark[] = [];
-      voyage.routePoints.forEach((p, idx) => {
-        const isStart = idx === 0;
-        const pm = new ymaps.Placemark(
-          [p.latitude, p.longitude],
-          {
-            idx: String(idx + 1),
-            hintContent: `${idx + 1}. ${p.name}${p.arrivalDate ? ' · ' + p.arrivalDate : ''}`,
-          },
-          {
-            iconLayout: isStart ? layoutStart : layoutNormal,
-            iconOffset: [-12, -12],
-            iconShape: { type: 'Circle', coordinates: [12, 12], radius: 13 },
-            // High z-index so placemarks stay on top of the SVG route overlay.
-            zIndex: 1000,
-            // zIndexHover is used by Yandex when the placemark is hovered.
-            zIndexHover: 1100,
-          }
-        );
-        pm.events.add('click', () => {
-          onSelectPoint?.(voyage.id, p.id);
-        });
-        map.geoObjects.add(pm);
-        marks.push(pm);
-      });
-      newPlacemarks.push({ voyageId: voyage.id, marks });
-    });
-
-    placemarksRef.current = newPlacemarks;
-  }, [voyages, status, onSelectPoint]);
-
-  // === Show/hide placemarks based on selection ===
-  useEffect(() => {
-    const isSel = (vid: string) =>
-      selectedVoyageId === null || selectedVoyageId === vid;
-
-    placemarksRef.current.forEach((entry) => {
-      const visible = isSel(entry.voyageId);
-      entry.marks.forEach((m) => {
-        m.options.set('visible', visible);
-      });
-    });
-  }, [selectedVoyageId, voyages]);
 
   // === Refresh SVG when routes or selection change ===
   useEffect(() => {
@@ -480,11 +462,9 @@ export default function YandexMapView({
         aria-label="Карта исторических маршрутов"
       />
 
-      {/* SVG overlay for route polylines.
-          Positioned above map tiles (z-index: 5) so lines are visible.
-          Placemarks are rendered by Yandex with explicit zIndex=1000
-          (see options below) so their numbered markers stay ON TOP of
-          the lines. */}
+      {/* SVG overlay for route polylines and waypoint markers, positioned
+          above map tiles (z-index: 5). Markers are drawn after the paths
+          so the numbered circles stay on top of the lines. */}
       {status === 'ready' && (
         <svg
           className="pointer-events-none absolute inset-0 h-full w-full"
@@ -509,6 +489,37 @@ export default function YandexMapView({
               onMouseEnter={() => onHoverVoyage?.(p.voyageId)}
               onMouseLeave={() => onHoverVoyage?.(null)}
             />
+          ))}
+
+          {svgMarkers.map((m) => (
+            <g
+              key={`${m.voyageId}-${m.pointId}`}
+              transform={`translate(${m.x},${m.y})`}
+              style={{ pointerEvents: 'auto', cursor: 'pointer' }}
+              onClick={() => onSelectPoint?.(m.voyageId, m.pointId)}
+            >
+              <title>{`${m.idx}. ${m.name}${m.date ? ' · ' + m.date : ''}`}</title>
+              {m.isStart && (
+                <circle
+                  className="meridian-svg-start-ring"
+                  r={15}
+                  fill="none"
+                  stroke={m.color}
+                  strokeWidth={2}
+                />
+              )}
+              <circle r={11} fill="#0C1826" stroke={m.color} strokeWidth={2} />
+              <text
+                textAnchor="middle"
+                dy="0.35em"
+                fill="#EDE6D6"
+                fontSize={11}
+                fontWeight={600}
+                style={{ fontFamily: 'var(--font-mono), monospace', userSelect: 'none' }}
+              >
+                {m.idx}
+              </text>
+            </g>
           ))}
         </svg>
       )}

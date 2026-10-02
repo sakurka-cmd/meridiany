@@ -219,6 +219,14 @@
   100% { transform: scale(1.35); opacity: 0; }
 }
 
+/* SVG waypoint markers (drawn in the map overlay) — pulsing ring for
+   the start point, matching .meridian-waypoint--start. */
+.meridian-svg-start-ring {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: meridian-ring 1.8s ease-out infinite;
+}
+
 /* Hint pill — pulses gently */
 .meridian-hint {
   animation: meridian-bob 3s ease-in-out infinite;
