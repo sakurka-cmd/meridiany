@@ -117,7 +117,10 @@ export default function Home() {
   }, []);
 
   // Stats for the header
-  const totalPoints = voyages.reduce((acc, v) => acc + v.routePoints.length, 0);
+  const totalPoints = voyages.reduce(
+    (acc, v) => acc + v.routePoints.filter((p) => p.isWaypoint).length,
+    0
+  );
   const totalKm = useMemo(() => {
     return Object.values(voyagesKm).reduce((acc, k) => acc + k, 0);
   }, [voyagesKm]);

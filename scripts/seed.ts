@@ -4,7 +4,24 @@
 import { db } from '../src/lib/db';
 import { SEA_EXPLORERS } from './seed-sea';
 import { LAND_EXPLORERS } from './seed-land';
-import type { SeedExplorer } from './seed-types';
+import { MIDPOINTS } from './seed-midpoints';
+import type { SeedExplorer, SeedRoutePoint } from './seed-types';
+
+// Ключевые точки + промежуточные (isWaypoint=false) из seed-midpoints.
+function mergePoints(voyage: SeedExplorer['voyages'][number]): SeedRoutePoint[] {
+  const mids = MIDPOINTS[voyage.title] ?? [];
+  const out: SeedRoutePoint[] = [];
+  for (let i = 0; i < voyage.points.length; i++) {
+    out.push(voyage.points[i]);
+    for (const seg of mids) {
+      if (seg.seg !== i) continue;
+      for (const [lat, lng] of seg.pts) {
+        out.push({ name: '', lat, lng, isWaypoint: false });
+      }
+    }
+  }
+  return out;
+}
 
 const ALL_EXPLORERS: SeedExplorer[] = [...SEA_EXPLORERS, ...LAND_EXPLORERS];
 
@@ -37,13 +54,14 @@ async function seed() {
             category: v.category,
             color: v.color,
             routePoints: {
-              create: v.points.map((p, i) => ({
+              create: mergePoints(v).map((p, i) => ({
                 order: i,
                 name: p.name,
                 description: p.description ?? null,
                 latitude: p.lat,
                 longitude: p.lng,
                 arrivalDate: p.arrivalDate ?? null,
+                isWaypoint: p.isWaypoint ?? true,
               })),
             },
           })),

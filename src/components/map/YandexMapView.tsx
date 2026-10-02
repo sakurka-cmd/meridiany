@@ -125,14 +125,17 @@ export default function YandexMapView({
       segments: buildSmoothedRoute(
         voyage.routePoints.map((p) => [p.latitude, p.longitude] as LatLng)
       ).segments.map((seg) => ({ points: seg })),
-      points: voyage.routePoints.map((p, i) => ({
-        id: p.id,
-        lat: p.latitude,
-        lng: p.longitude,
-        idx: i + 1,
-        name: p.name,
-        date: p.arrivalDate,
-      })),
+      // Маркеры — только у ключевых точек; сплайн строится по всем.
+      points: voyage.routePoints
+        .filter((p) => p.isWaypoint)
+        .map((p, i) => ({
+          id: p.id,
+          lat: p.latitude,
+          lng: p.longitude,
+          idx: i + 1,
+          name: p.name,
+          date: p.arrivalDate,
+        })),
     }));
   }, [voyages]);
 

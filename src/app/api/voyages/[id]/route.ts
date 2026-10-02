@@ -43,6 +43,7 @@ export async function GET(
         id: p.id,
         order: p.order,
         name: p.name,
+        isWaypoint: p.isWaypoint,
         description: p.description,
         latitude: p.latitude,
         longitude: p.longitude,

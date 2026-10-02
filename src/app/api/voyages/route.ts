@@ -44,6 +44,7 @@ export async function GET(request: Request) {
         id: p.id,
         order: p.order,
         name: p.name,
+        isWaypoint: p.isWaypoint,
         description: p.description,
         latitude: p.latitude,
         longitude: p.longitude,

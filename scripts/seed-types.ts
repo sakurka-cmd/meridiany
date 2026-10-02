@@ -7,6 +7,8 @@ export interface SeedRoutePoint {
   lng: number;
   description?: string;
   arrivalDate?: string;
+  /** false = вспомогательная точка без подписи (изгиб маршрута) */
+  isWaypoint?: boolean;
 }
 
 export interface SeedVoyage {

@@ -111,7 +111,7 @@ export default function VoyageDetail({
             Ключевые точки
           </h4>
           <ol className="space-y-0.5">
-            {voyage.routePoints.map((p, i) => {
+            {voyage.routePoints.filter((p) => p.isWaypoint).map((p, i) => {
               const active = highlightedPointId === p.id;
               return (
                 <li key={p.id}>

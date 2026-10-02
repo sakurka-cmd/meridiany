@@ -43,6 +43,7 @@ export interface RoutePointDTO {
   id: string;
   order: number;
   name: string;
+  isWaypoint: boolean;
   description: string | null;
   latitude: number;
   longitude: number;

@@ -87,7 +87,7 @@ export default function Sidebar({
         era: v.era,
         category: v.category,
         color: v.color,
-        pointCount: v.routePoints.length,
+        pointCount: v.routePoints.filter((p) => p.isWaypoint).length,
       }));
   }, [voyages, search]);
 
